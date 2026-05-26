@@ -1,0 +1,111 @@
+version: "3.9"
+
+services:
+  # ── FastAPI Application ───────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: production
+    container_name: brandora_api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app  # Hot reload in dev (remove in prod)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Celery Content Worker ─────────────────────────────────────
+  celery_content:
+    build:
+      context: .
+      target: production
+    container_name: brandora_celery_content
+    command: >
+      celery -A app.workers.celery_app worker
+      --loglevel=info
+      --queues=content,default
+      --concurrency=4
+    env_file: .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Celery Scheduler Worker ───────────────────────────────────
+  celery_scheduler:
+    build:
+      context: .
+      target: production
+    container_name: brandora_celery_scheduler
+    command: >
+      celery -A app.workers.celery_app worker
+      --loglevel=info
+      --queues=scheduler
+      --concurrency=2
+    env_file: .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Celery Beat (periodic tasks) ──────────────────────────────
+  celery_beat:
+    build:
+      context: .
+      target: production
+    container_name: brandora_celery_beat
+    command: >
+      celery -A app.workers.celery_app beat
+      --loglevel=info
+      --schedule=/tmp/celerybeat-schedule
+    env_file: .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── PostgreSQL (local dev only; use Supabase in prod) ─────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: brandora_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: brandora
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d brandora"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: brandora_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

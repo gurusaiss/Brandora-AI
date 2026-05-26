@@ -1,0 +1,71 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy-staging:
+    name: Deploy to Railway Staging
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Run DB Migrations on Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway run --service brandora-backend-staging -- alembic upgrade head
+        continue-on-error: false   # fail fast if migrations break
+
+      - name: Deploy Backend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway up --service brandora-backend-staging --detach
+
+      - name: Deploy Celery Worker to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway up --service brandora-celery-staging --detach
+
+      - name: Deploy Frontend to Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway up --service brandora-frontend-staging --detach
+
+      - name: Wait and check health
+        run: |
+          echo "Waiting 30s for services to start..."
+          sleep 30
+          curl --fail --retry 5 --retry-delay 10 \
+            "${{ vars.STAGING_BACKEND_URL }}/health" \
+            && echo "Backend health check passed" \
+            || echo "Backend health check failed (non-blocking)"
+        continue-on-error: true
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Staging deployment succeeded for commit ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Deployed by: ${{ github.actor }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Staging deployment FAILED for commit ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Triggered by: ${{ github.actor }}"
+          # Add Slack/Discord webhook notification here when ready:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"Staging deploy failed: ${{ github.sha }}"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}

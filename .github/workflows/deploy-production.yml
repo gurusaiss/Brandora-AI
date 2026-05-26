@@ -1,0 +1,103 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel an in-flight production deploy
+
+jobs:
+  deploy-production:
+    name: Deploy to Railway Production
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Run DB Migrations (production)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        run: |
+          echo "Running Alembic migrations..."
+          railway run --service brandora-backend-prod -- alembic upgrade head
+          echo "Migrations completed successfully"
+
+      - name: Deploy Backend to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        run: railway up --service brandora-backend-prod --detach
+
+      - name: Deploy Celery Worker to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        run: railway up --service brandora-celery-prod --detach
+
+      - name: Deploy Celery Beat to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        run: railway up --service brandora-celery-beat-prod --detach
+
+      - name: Deploy Frontend to Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        run: railway up --service brandora-frontend-prod --detach
+
+      - name: Wait and verify deployment
+        run: |
+          echo "Waiting 60s for production services to start..."
+          sleep 60
+          curl --fail --retry 5 --retry-delay 15 \
+            "${{ vars.PROD_BACKEND_URL }}/health" \
+            && echo "Production backend health check passed"
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## What's Changed
+
+            Automated release for version ${{ steps.version.outputs.VERSION }}.
+
+            **Deployment Details**
+            - Deployed by: ${{ github.actor }}
+            - Commit SHA: ${{ github.sha }}
+            - Deployed at: ${{ github.event.head_commit.timestamp }}
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for full change details.
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Production deployment SUCCEEDED"
+          echo "Version: ${{ steps.version.outputs.VERSION }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "CRITICAL: Production deployment FAILED"
+          echo "Version: ${{ steps.version.outputs.VERSION }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Manual rollback may be required."
+          # Add PagerDuty / Slack critical alert here:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"CRITICAL: Production deploy failed for ${{ steps.version.outputs.VERSION }}"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
