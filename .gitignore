@@ -46,9 +46,12 @@ var/
 sdist/
 develop-eggs/
 .installed.cfg
-lib/
-lib64/
+/lib/
+/lib64/
 wheels/
+
+# Never ignore frontend source lib (was accidentally caught by lib/ above)
+!frontend/src/lib/
 
 # Test / coverage
 .pytest_cache/
