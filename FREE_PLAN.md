@@ -528,25 +528,32 @@ Revenue at this stage: Should be ~$500–2,000/month (easily covers costs)
 ## Summary: Do This Right Now (Free Setup in 15 Minutes)
 
 ```
-Step 1  (2 min):  Get Gemini API key
-                  → https://aistudio.google.com/app/apikey
+Step 1  (2 min):  Get Groq API key (PRIMARY AI — free, fast)
+                  → https://console.groq.com/keys
+                  → Sign up → Create API Key → copy it
 
-Step 2  (1 min):  Copy root .env
+Step 2  (2 min):  Get Gemini API key (FALLBACK AI — free)
+                  → https://aistudio.google.com/app/apikey
+                  → Sign in with Google → Create API Key → copy it
+
+Step 3  (1 min):  Copy root .env
                   → cp .env.example .env
 
-Step 3  (2 min):  Fill in just these 2 lines in .env:
-                  GOOGLE_AI_API_KEY=your_key_here
+Step 4  (2 min):  Fill in these 3 lines in .env:
+                  GROQ_API_KEY=gsk_your_key_here
+                  GOOGLE_AI_API_KEY=AIza_your_key_here
                   SECRET_KEY=any-random-32-char-string-here
 
-Step 4  (1 min):  Start everything
+Step 5  (1 min):  Start everything
                   → make dev
 
-Step 5  (2 min):  Run database setup
+Step 6  (2 min):  Run database setup
                   → make migrate
 
-Step 6  (0 min):  Open the app
-                  → http://localhost:3000   (UI)
-                  → http://localhost:8000/docs  (API explorer)
+Step 7  (0 min):  Open the app
+                  → http://localhost:3000        (main UI)
+                  → http://localhost:8000/docs   (API explorer)
+                  → http://localhost:5555        (Celery job monitor)
 
 Total time: ~10 minutes. Total cost: $0.
 ```

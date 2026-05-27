@@ -58,10 +58,15 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── AI Providers ──────────────────────────────────────────────────────────
+    # PRIMARY (Free) — get key at https://console.groq.com/keys
+    GROQ_API_KEY: str = ""
+    # SECONDARY fallback (Free) — get key at https://aistudio.google.com/app/apikey
+    GOOGLE_AI_API_KEY: str = ""
+    # OPTIONAL paid providers — leave blank to skip
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
-    GOOGLE_AI_API_KEY: str = ""
-    DEFAULT_AI_MODEL: str = "gpt-4o"
+    # Default model — Groq Llama 3.3 70B (free, high quality)
+    DEFAULT_AI_MODEL: str = "llama-3.3-70b-versatile"
 
     # ── Social OAuth ──────────────────────────────────────────────────────────
     LINKEDIN_CLIENT_ID: str = ""

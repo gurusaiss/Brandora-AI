@@ -18,9 +18,10 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.12
 
 # ── AI Providers ──────────────────────────────────────────────────────────────
-openai==1.50.0
-anthropic==0.34.0
-google-generativeai==0.8.0
+groq==0.11.0                   # PRIMARY — free tier, Llama 3.3 70B / Mixtral
+google-generativeai==0.8.0     # SECONDARY fallback — Gemini Flash free tier
+openai==1.50.0                 # OPTIONAL — paid, used only if OPENAI_API_KEY is set
+anthropic==0.34.0              # OPTIONAL — paid, used only if ANTHROPIC_API_KEY is set
 
 # ── Task queue ────────────────────────────────────────────────────────────────
 celery==5.4.0
