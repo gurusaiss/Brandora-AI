@@ -14,6 +14,14 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
+# ── First-time setup ──────────────────────────────────────────
+setup: ## Copy .env.example → .env (run once before anything else)
+	@if [ -f .env ]; then \
+		echo "  ✓  .env already exists — skipping (delete it first to reset)"; \
+	else \
+		cp .env.example .env && echo "  ✓  Created .env from .env.example — fill in your API keys"; \
+	fi
+
 # ── Development ───────────────────────────────────────────────
 dev: ## Start all services for local development
 	docker-compose up -d

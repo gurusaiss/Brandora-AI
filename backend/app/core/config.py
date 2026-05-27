@@ -1,14 +1,32 @@
 """
 Application configuration using pydantic-settings.
-All settings are loaded from environment variables / .env file.
+
+Single .env at the project root is the source of truth.
+Search order (first file found wins):
+  1. ../../.env  — when running from backend/app/core/ or via uvicorn inside backend/
+  2. ../../../.env — when cwd is deeper
+  3. .env        — fallback (also catches Docker env injection via env_file)
+
+In Docker the root .env is injected as env vars via docker-compose env_file,
+so pydantic-settings reads them from the environment directly (no file needed).
 """
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Walk up from this file to locate the project-root .env
+_HERE = Path(__file__).resolve().parent          # …/backend/app/core
+_ROOT = _HERE.parent.parent.parent.parent        # …/Brandora AI  (project root)
+_ENV_CANDIDATES = [
+    str(_ROOT / ".env"),          # project root — primary
+    str(_HERE.parent.parent.parent / ".env"),  # backend/ — fallback
+    ".env",                        # cwd fallback (also works for Docker env injection)
+]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_CANDIDATES,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
