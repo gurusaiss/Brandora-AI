@@ -48,7 +48,7 @@ def upgrade() -> None:
     content_status.create(op.get_bind(), checkfirst=True)
 
     ai_provider_enum = postgresql.ENUM(
-        "openai", "anthropic", "google",
+        "groq", "google", "openai", "anthropic",
         name="aiproviderenum",
         create_type=True,
     )
@@ -298,7 +298,7 @@ def upgrade() -> None:
         sa.Column("generated_content", sa.Text, nullable=False),
         sa.Column("edited_content", sa.Text, nullable=True,
                   comment="User-edited version before publishing"),
-        sa.Column("ai_provider", sa.Enum("openai", "anthropic", "google",
+        sa.Column("ai_provider", sa.Enum("groq", "google", "openai", "anthropic",
                                          name="aiproviderenum", create_type=False),
                   nullable=False),
         sa.Column("ai_model", sa.String(100), nullable=True),
@@ -387,7 +387,7 @@ def upgrade() -> None:
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("content_generation_id", postgresql.UUID(as_uuid=True),
                   nullable=True),
-        sa.Column("ai_provider", sa.Enum("openai", "anthropic", "google",
+        sa.Column("ai_provider", sa.Enum("groq", "google", "openai", "anthropic",
                                          name="aiproviderenum", create_type=False),
                   nullable=False),
         sa.Column("ai_model", sa.String(100), nullable=False),

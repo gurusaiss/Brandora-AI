@@ -1,0 +1,104 @@
+# ============================================================
+# Brandora AI — Render.com Deployment Config
+# Docs: https://render.com/docs/render-yaml-specification
+# ============================================================
+# Deploy:
+#   1. Push this repo to GitHub (already done)
+#   2. Go to https://dashboard.render.com
+#   3. New → Blueprint → connect your GitHub repo
+#   4. Render auto-reads this file and creates all services
+#   5. Set the secret env vars in Render dashboard
+# ============================================================
+
+services:
+
+  # ── Backend API (FastAPI) ─────────────────────────────────────
+  - type: web
+    name: brandora-backend
+    runtime: python
+    plan: free                          # free = 750 hrs/month (always on for 1 service)
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeploy: true                    # auto-redeploy on every GitHub push
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+
+      # ── These must be filled in Render dashboard → Environment ─
+      # DATABASE_URL: your Supabase pooler connection string
+      #   postgresql+asyncpg://postgres.xxxx:PASSWORD@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+      - key: DATABASE_URL
+        sync: false
+
+      # REDIS_URL: your Upstash Redis URL
+      #   rediss://default:PASSWORD@apt-xxx.upstash.io:6379
+      - key: REDIS_URL
+        sync: false
+
+      # SECRET_KEY: generate with: python -c "import secrets; print(secrets.token_hex(32))"
+      - key: SECRET_KEY
+        sync: false
+
+      # AI providers (Groq is primary — free)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+
+      # CORS: set to your Vercel frontend URL once deployed
+      # e.g. https://brandora-ai.vercel.app
+      - key: FRONTEND_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      - key: DEFAULT_AI_MODEL
+        value: llama-3.3-70b-versatile
+
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+
+
+  # ── Celery Worker (background jobs) ──────────────────────────
+  # Optional: handles scheduled posting and analytics
+  # Can be disabled for MVP (content generation still works without it)
+  - type: worker
+    name: brandora-celery-worker
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: celery -A app.workers.celery_app worker --loglevel=info -Q content,scheduler,analytics,default --concurrency=2
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
