@@ -45,37 +45,49 @@ Brandora AI is a purpose-built platform that helps sanitation and menstrual hygi
 
 ## Quick Start
 
+> 💡 **Running this for the first time?** See [FREE_PLAN.md](./FREE_PLAN.md) for the
+> complete free-tier setup guide. **You only need one free API key to get started.**
+
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (v24+)
-- [Node.js](https://nodejs.org/) 20+ (for local frontend dev without Docker)
-- [Python](https://python.org/) 3.11+ (for local backend dev without Docker)
-- [Make](https://www.gnu.org/software/make/) (optional but recommended)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (v24+) — required
+- [Make](https://www.gnu.org/software/make/) — optional but recommended
+- [Google Gemini API Key](https://aistudio.google.com/app/apikey) — free, takes 2 minutes
 
-### Local Development with Docker
+### What You'll See When Running
+
+| URL | What it shows |
+|-----|--------------|
+| `http://localhost:3000` | Main app — register, login, generate content |
+| `http://localhost:8000/docs` | Interactive API explorer (Swagger UI) |
+| `http://localhost:8000/redoc` | API reference docs |
+| `http://localhost:5555` | Celery Flower — background job monitor |
+| `localhost:5432` | PostgreSQL — connect via DBeaver/pgAdmin/TablePlus |
+| `localhost:6379` | Redis — connect via Redis Insight |
+
+### Local Development with Docker (recommended)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/brandora-ai.git
-cd brandora-ai
+git clone https://github.com/gurusaiss/Brandora-AI.git
+cd Brandora-AI
 
-# 2. Copy and configure environment variables
-cp .env.example backend/.env
-cp .env.example frontend/.env.local
-# Edit both files with your API keys
+# 2. Create your .env from the template (ONE file for everything)
+cp .env.example .env
+# Open .env and fill in at minimum:
+#   GOOGLE_AI_API_KEY=your_key_here     ← get free at aistudio.google.com
+#   SECRET_KEY=any-32-char-random-string
 
-# 3. Start all services
+# 3. Start all services (PostgreSQL + Redis + Backend + Celery + Frontend)
 make dev
 # or: docker-compose up -d
 
-# 4. Run database migrations and seed data
+# 4. Run database migrations (first time only)
 make migrate
-make seed
 
 # 5. Open the app
-# Frontend:  http://localhost:3000
-# API docs:  http://localhost:8000/docs
-# Flower:    http://localhost:5555
+# → http://localhost:3000   (main UI — register an account)
+# → http://localhost:8000/docs   (API explorer)
 ```
 
 ### Manual Setup (without Docker)
@@ -86,18 +98,20 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp ../.env.example .env          # fill in your values
+# .env is read from the project root automatically
 alembic upgrade head
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 ```
 
 **Frontend**
 ```bash
 cd frontend
 npm install
-cp ../.env.example .env.local    # fill in NEXT_PUBLIC_* values
-npm run dev
+npm run dev      # automatically loads root .env via dotenv-cli
 ```
+
+> The `npm run dev` script uses `dotenv -e ../.env` to load the root `.env`
+> automatically. No separate `frontend/.env.local` needed.
 
 ---
 
