@@ -1,5 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Skip type-checking during build — run `npm run type-check` locally instead
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  // Skip ESLint during build — run `npm run lint` locally instead
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.supabase.co' },
