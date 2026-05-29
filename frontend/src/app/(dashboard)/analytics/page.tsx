@@ -179,7 +179,7 @@ export default function AnalyticsPage() {
                 <Legend />
                 <Line
                   type="monotone"
-                  dataKey="count"
+                  dataKey="generations"
                   name="Generations"
                   stroke="hsl(var(--primary))"
                   strokeWidth={2}

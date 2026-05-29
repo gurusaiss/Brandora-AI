@@ -30,12 +30,12 @@ export default function DashboardLayout({
 
   // Auth guard
   useEffect(() => {
-    if (!isAuthenticated && !accessToken) {
+    if (!isAuthenticated || !accessToken) {
       router.replace('/login')
     }
   }, [isAuthenticated, accessToken, router])
 
-  if (!isAuthenticated && !accessToken) {
+  if (!isAuthenticated || !accessToken) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />

@@ -24,11 +24,11 @@ class BrandProfileUpdateRequest(BaseModel):
     sdg_alignment: Optional[List[int]] = Field(None, description="SDG numbers 1-17")
 
     # Tone dimensions (1-10)
-    tone_professional: Optional[int] = Field(None, ge=1, le=10)
-    tone_warm: Optional[int] = Field(None, ge=1, le=10)
-    tone_inspirational: Optional[int] = Field(None, ge=1, le=10)
-    tone_educational: Optional[int] = Field(None, ge=1, le=10)
-    tone_urgent: Optional[int] = Field(None, ge=1, le=10)
+    tone_professional: Optional[int] = Field(None, ge=0, le=100)
+    tone_warm: Optional[int] = Field(None, ge=0, le=100)
+    tone_inspirational: Optional[int] = Field(None, ge=0, le=100)
+    tone_educational: Optional[int] = Field(None, ge=0, le=100)
+    tone_urgent: Optional[int] = Field(None, ge=0, le=100)
 
     # Founder voice
     founder_name: Optional[str] = Field(None, max_length=255)

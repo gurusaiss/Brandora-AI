@@ -15,6 +15,8 @@ from app.api.v1.routes import (
     schedule,
     social_accounts,
     content,
+    team,
+    api_keys,
 )
 
 api_router = APIRouter()
@@ -30,3 +32,5 @@ api_router.include_router(hashtags.router, prefix="/hashtags", tags=["Hashtags"]
 api_router.include_router(festivals.router, prefix="/festivals", tags=["Festival Calendar"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
+api_router.include_router(team.router, prefix="/team", tags=["Team"])
+api_router.include_router(api_keys.router, prefix="/api-keys", tags=["API Keys"])

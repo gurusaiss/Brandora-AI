@@ -13,15 +13,11 @@ logger = logging.getLogger("brandora.workers.content")
 
 def _run_async(coro):
     """Run an async coroutine in a Celery (sync) task."""
+    loop = asyncio.new_event_loop()
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @celery_app.task(
@@ -83,7 +79,7 @@ def generate_content_async(
     try:
         return _run_async(_generate())
     except Exception as exc:
-        logger.error("Content generation task failed", generation_id=generation_id, error=str(exc))
+        logger.error("Content generation task failed — id=%s error=%s", generation_id, str(exc))
         raise self.retry(exc=exc)
 
 
@@ -140,7 +136,7 @@ def bulk_generate_campaign_content(
     try:
         return _run_async(_bulk_generate())
     except Exception as exc:
-        logger.error("Bulk generation failed", campaign_id=campaign_id, error=str(exc))
+        logger.error("Bulk generation failed — campaign=%s error=%s", campaign_id, str(exc))
         raise self.retry(exc=exc)
 
 
@@ -212,5 +208,5 @@ def repurpose_content_async(
     try:
         return _run_async(_repurpose())
     except Exception as exc:
-        logger.error("Repurpose task failed", content_id=content_id, error=str(exc))
+        logger.error("Repurpose task failed — id=%s error=%s", content_id, str(exc))
         raise self.retry(exc=exc)

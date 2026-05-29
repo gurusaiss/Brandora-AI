@@ -60,8 +60,8 @@ async def get_current_user(
     if not user_id:
         raise AuthenticationError("Invalid token payload.")
 
-    # Check blacklist (logout)
-    is_blacklisted = await redis.get(f"blacklist:token:{token}")
+    # Check blacklist (logout) — key written by auth.py logout endpoint
+    is_blacklisted = await redis.get(f"blacklist:user:{user_id}")
     if is_blacklisted:
         raise AuthenticationError("Token has been revoked.")
 

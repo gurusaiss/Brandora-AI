@@ -56,6 +56,8 @@ class OrganizationBriefResponse(BaseModel):
     slug: str
     sector: str
     subscription_tier: str
+    ai_generations_used: int = 0
+    ai_generations_limit: int = 20
 
     model_config = {"from_attributes": True}
 
