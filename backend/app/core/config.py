@@ -10,10 +10,8 @@ Search order (first file found wins):
 In Docker the root .env is injected as env vars via docker-compose env_file,
 so pydantic-settings reads them from the environment directly (no file needed).
 """
-import json
 from pathlib import Path
 from typing import Optional
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Walk up from this file to locate the project-root .env
@@ -88,26 +86,14 @@ class Settings(BaseSettings):
     SENTRY_DSN: Optional[str] = None
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    # Plain string — comma-separated origins or "*"
+    # e.g.  "*"  or  "https://app.vercel.app"  or  "https://a.com,https://b.com"
+    ALLOWED_ORIGINS: str = "*"
 
-    @field_validator("ALLOWED_ORIGINS", mode="before")
-    @classmethod
-    def parse_allowed_origins(cls, v):
-        """Accept plain string, comma-separated, or JSON array from env vars."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            v = v.strip()
-            # Try JSON array first: ["https://..."]
-            try:
-                parsed = json.loads(v)
-                if isinstance(parsed, list):
-                    return parsed
-            except (json.JSONDecodeError, ValueError):
-                pass
-            # Comma-separated or single value
-            return [o.strip() for o in v.split(",") if o.strip()]
-        return v
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        """Return ALLOWED_ORIGINS as a list for FastAPI CORSMiddleware."""
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
     # ── Email (optional SMTP) ─────────────────────────────────────────────────
     SMTP_HOST: str = "smtp.gmail.com"
