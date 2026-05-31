@@ -59,7 +59,7 @@ export default function AnalyticsPage() {
     {
       title: 'Total Generated',
       value: formatNumber(overview?.total_generations ?? 0),
-      change: { value: overview?.generations_change_pct ?? 12, positive: true },
+      change: { value: overview?.generations_change_pct ?? 0, positive: (overview?.generations_change_pct ?? 0) >= 0 },
       icon: <Sparkles className="w-4 h-4" />,
     },
     {

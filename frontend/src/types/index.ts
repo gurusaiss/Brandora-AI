@@ -163,9 +163,13 @@ export interface AnalyticsOverview {
   total_tokens_used: number
   generations_this_week: number
   generations_change_pct: number
-  most_used_platform: Platform
-  platform_breakdown: Record<Platform, number>
-  daily_activity: Array<{ date: string; count: number }>
+  most_used_platform: string
+  platform_breakdown: Record<string, number>
+  daily_activity: Array<{ date: string; generations: number }>
+  // Usage meter fields
+  generations_used: number
+  generations_limit: number
+  subscription_tier: string
 }
 
 export interface ApiResponse<T> {
