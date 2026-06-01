@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Plus, X, Edit2, Trash2, CalendarDays } from 'lucide-react'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 import { scheduleApi, festivalApi } from '@/lib/api'
 import { cn, getPlatformColor, getPlatformIcon } from '@/lib/utils'
 import type { Platform, Festival } from '@/types'
