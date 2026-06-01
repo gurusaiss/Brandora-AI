@@ -223,6 +223,20 @@ CREATE TABLE alembic_version (
 );
 INSERT INTO alembic_version (version_num) VALUES ('001');
 
+-- api_keys
+CREATE TABLE IF NOT EXISTS api_keys (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id  UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    name             VARCHAR(100) NOT NULL,
+    key_hash         VARCHAR(64) NOT NULL,
+    key_preview      VARCHAR(20) NOT NULL,
+    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+    last_used_at     TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_org ON api_keys(organization_id);
+
 -- ── Seed data: Festivals & Awareness Days ─────────────────────────────────────
 INSERT INTO festivals (name, date, category, relevant_sectors, suggested_hashtags, country) VALUES
 ('Menstrual Hygiene Day',         '2026-05-28', 'awareness_day', '["menstrual_hygiene","wash"]',            '["#MHDay2026","#MenstrualHygieneDay","#PeriodPositive","#BreakTheTaboo"]', 'IN'),

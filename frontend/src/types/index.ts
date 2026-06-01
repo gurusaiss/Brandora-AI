@@ -204,3 +204,14 @@ export interface AuthResponse {
   user: User
   organization: Organization
 }
+
+export interface ScheduledPost {
+  id: string
+  platform: Platform
+  content: string
+  hashtags: string[]
+  scheduled_at: string
+  status: 'draft' | 'scheduled' | 'published' | 'failed'
+  campaign_id?: string
+  created_at: string
+}

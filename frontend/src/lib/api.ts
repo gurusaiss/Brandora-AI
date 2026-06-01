@@ -126,4 +126,18 @@ export const apiKeyApi = {
   revoke: (id: string) => api.delete(`/api-keys/${id}`),
 }
 
+// ─── Schedule ─────────────────────────────────────────────────────────────────
+export const scheduleApi = {
+  list: (params?: Record<string, unknown>) => api.get('/schedule', { params }),
+  create: (data: Record<string, unknown>) => api.post('/schedule', data),
+  update: (id: string, data: Record<string, unknown>) => api.put('/schedule/' + id, data),
+  delete: (id: string) => api.delete('/schedule/' + id),
+}
+
+// ─── Organization ─────────────────────────────────────────────────────────────
+export const organizationApi = {
+  me: () => api.get('/organizations/me'),
+  update: (data: Record<string, unknown>) => api.patch('/organizations/me', data),
+}
+
 export default api

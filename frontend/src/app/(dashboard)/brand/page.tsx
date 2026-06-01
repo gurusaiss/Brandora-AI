@@ -2,87 +2,57 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import * as Tabs from '@radix-ui/react-tabs'
-import * as Slider from '@radix-ui/react-slider'
 import toast from 'react-hot-toast'
-import { Save, Plus, X, Building2, Loader2 } from 'lucide-react'
+import { Save, Loader2, Building2, Volume2, User, Globe2, BookOpen } from 'lucide-react'
 import { brandProfileApi } from '@/lib/api'
-import { getSectorOptions } from '@/lib/utils'
 import type { BrandProfile } from '@/types'
 
-const TONE_LABELS = [
-  { key: 'tone_professional', label: 'Professional', desc: 'Formal, expert tone' },
-  { key: 'tone_warm', label: 'Warm', desc: 'Empathetic, caring tone' },
-  { key: 'tone_inspirational', label: 'Inspirational', desc: 'Motivating, uplifting' },
-  { key: 'tone_educational', label: 'Educational', desc: 'Informative, clear' },
-  { key: 'tone_urgent', label: 'Urgent', desc: 'Action-driving, compelling' },
+const SECTOR_OPTIONS = [
+  { value: 'menstrual_hygiene', label: 'Menstrual Hygiene' },
+  { value: 'sanitation', label: 'Sanitation' },
+  { value: 'wash', label: 'WASH' },
+  { value: 'csr', label: 'CSR' },
+  { value: 'sustainability', label: 'Sustainability' },
+]
+
+const TONE_DIMENSIONS = [
+  { key: 'tone_professional', label: 'Professional' },
+  { key: 'tone_warm', label: 'Warm' },
+  { key: 'tone_inspirational', label: 'Inspirational' },
+  { key: 'tone_educational', label: 'Educational' },
+  { key: 'tone_urgent', label: 'Urgent' },
 ] as const
 
-type ToneKey = (typeof TONE_LABELS)[number]['key']
+type ToneDimensionKey = (typeof TONE_DIMENSIONS)[number]['key']
 
-interface TagInputProps {
-  tags: string[]
-  onChange: (tags: string[]) => void
-  placeholder: string
-}
+const inputClass =
+  'w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
+const textareaClass =
+  'w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
+const labelClass = 'block text-sm font-medium text-foreground mb-1.5'
 
-function TagInput({ tags, onChange, placeholder }: TagInputProps) {
-  const [input, setInput] = useState('')
-
-  const add = () => {
-    const val = input.trim()
-    if (val && !tags.includes(val)) {
-      onChange([...tags, val])
-    }
-    setInput('')
-  }
-
+function SectionCard({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: React.ElementType
+  title: string
+  children: React.ReactNode
+}) {
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5 min-h-[36px]">
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className="flex items-center gap-1 text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 px-2.5 py-1 rounded-lg font-medium"
-          >
-            {tag}
-            <button
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
-              className="hover:text-destructive transition-colors"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
+    <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
+      <div className="flex items-center gap-2">
+        <Icon className="w-5 h-5 text-primary" />
+        <h3 className="font-semibold text-foreground">{title}</h3>
       </div>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ',') {
-              e.preventDefault()
-              add()
-            }
-          }}
-          placeholder={placeholder}
-          className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-        />
-        <button
-          onClick={add}
-          className="h-9 w-9 flex items-center justify-center rounded-xl border border-border hover:bg-muted transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
-      </div>
+      {children}
     </div>
   )
 }
 
 export default function BrandProfilePage() {
   const queryClient = useQueryClient()
-  const sectorOptions = getSectorOptions()
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['brand-profile'],
@@ -100,25 +70,30 @@ export default function BrandProfilePage() {
     about: '',
     sector_focus: [],
     sdg_alignment: [],
-    tone_professional: 70,
-    tone_warm: 60,
-    tone_inspirational: 50,
-    tone_educational: 50,
-    tone_urgent: 30,
+    tone_professional: 5,
+    tone_warm: 5,
+    tone_inspirational: 5,
+    tone_educational: 5,
+    tone_urgent: 5,
     founder_name: '',
     founder_title: '',
     founder_bio: '',
     custom_vocabulary: [],
     avoid_words: [],
-    sample_posts: ['', '', ''],
     linkedin_handle: '',
     instagram_handle: '',
     twitter_handle: '',
   })
 
+  // textarea state for array fields (one item per line)
+  const [vocabText, setVocabText] = useState('')
+  const [avoidText, setAvoidText] = useState('')
+
   useEffect(() => {
     if (profile) {
-      setForm({ ...profile, sample_posts: profile.sample_posts ?? ['', '', ''] })
+      setForm(profile)
+      setVocabText((profile.custom_vocabulary || []).join('\n'))
+      setAvoidText((profile.avoid_words || []).join('\n'))
     }
   }, [profile])
 
@@ -137,13 +112,35 @@ export default function BrandProfilePage() {
   const set = (key: keyof BrandProfile, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }))
 
-  const handleSave = () => updateMutation.mutate(form)
+  const toggleSector = (value: string) => {
+    const current = form.sector_focus || []
+    set(
+      'sector_focus',
+      current.includes(value) ? current.filter((x) => x !== value) : [...current, value],
+    )
+  }
 
-  const inputClass =
-    'w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
-  const textareaClass =
-    'w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
-  const labelClass = 'block text-sm font-medium text-foreground mb-1.5'
+  const toggleSdg = (n: number) => {
+    const current = form.sdg_alignment || []
+    set(
+      'sdg_alignment',
+      current.includes(n) ? current.filter((x) => x !== n) : [...current, n],
+    )
+  }
+
+  const handleSave = () => {
+    updateMutation.mutate({
+      ...form,
+      custom_vocabulary: vocabText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      avoid_words: avoidText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    })
+  }
 
   if (isLoading) {
     return (
@@ -155,6 +152,7 @@ export default function BrandProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-foreground">Brand Profile</h2>
@@ -176,279 +174,233 @@ export default function BrandProfilePage() {
         </button>
       </div>
 
-      <Tabs.Root defaultValue="org">
-        <Tabs.List className="flex gap-1 bg-muted p-1 rounded-xl mb-6 overflow-x-auto">
-          {[
-            { value: 'org', label: 'Organization' },
-            { value: 'voice', label: 'Voice & Tone' },
-            { value: 'founder', label: 'Founder Profile' },
-            { value: 'samples', label: 'Sample Posts' },
-            { value: 'social', label: 'Social Handles' },
-          ].map((tab) => (
-            <Tabs.Trigger
-              key={tab.value}
-              value={tab.value}
-              className="flex-shrink-0 h-9 px-4 text-sm font-medium rounded-lg transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground hover:text-foreground"
-            >
-              {tab.label}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
+      {/* Section: Identity */}
+      <SectionCard icon={Building2} title="Identity">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className={labelClass}>Organization Name</label>
+            <input
+              value={form.organization_name || ''}
+              onChange={(e) => set('organization_name', e.target.value)}
+              className={inputClass}
+              placeholder="Your NGO or company name"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Tagline</label>
+            <input
+              value={form.tagline || ''}
+              onChange={(e) => set('tagline', e.target.value)}
+              className={inputClass}
+              placeholder="Empowering communities through hygiene"
+            />
+          </div>
+        </div>
+        <div>
+          <label className={labelClass}>Mission Statement</label>
+          <textarea
+            value={form.mission_statement || ''}
+            onChange={(e) => set('mission_statement', e.target.value)}
+            className={textareaClass}
+            rows={3}
+            placeholder="Our mission is to..."
+          />
+        </div>
+        <div>
+          <label className={labelClass}>About</label>
+          <textarea
+            value={form.about || ''}
+            onChange={(e) => set('about', e.target.value)}
+            className={textareaClass}
+            rows={4}
+            placeholder="History, impact, geography, target beneficiaries..."
+          />
+        </div>
+      </SectionCard>
 
-        {/* Tab 1: Organization */}
-        <Tabs.Content value="org" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <div className="flex items-center gap-2 mb-2">
-            <Building2 className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold text-foreground">Organization Info</h3>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className={labelClass}>Organization Name</label>
-              <input
-                value={form.organization_name || ''}
-                onChange={(e) => set('organization_name', e.target.value)}
-                className={inputClass}
-                placeholder="Your NGO or company name"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Tagline</label>
-              <input
-                value={form.tagline || ''}
-                onChange={(e) => set('tagline', e.target.value)}
-                className={inputClass}
-                placeholder="Empowering communities through hygiene"
-              />
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>Mission Statement</label>
-            <textarea
-              value={form.mission_statement || ''}
-              onChange={(e) => set('mission_statement', e.target.value)}
-              className={textareaClass}
-              rows={3}
-              placeholder="Our mission is to..."
-            />
-          </div>
-          <div>
-            <label className={labelClass}>About</label>
-            <textarea
-              value={form.about || ''}
-              onChange={(e) => set('about', e.target.value)}
-              className={textareaClass}
-              rows={4}
-              placeholder="Tell AI about your organization — history, impact, geography, target beneficiaries..."
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Sector Focus</label>
-            <TagInput
-              tags={form.sector_focus || []}
-              onChange={(v) => set('sector_focus', v)}
-              placeholder="Add sector (e.g. menstrual health)"
-            />
-          </div>
-          <div>
-            <label className={labelClass}>SDG Alignment (Goals 1–17)</label>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: 17 }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  onClick={() => {
-                    const current = form.sdg_alignment || []
-                    set(
-                      'sdg_alignment',
-                      current.includes(n)
-                        ? current.filter((x) => x !== n)
-                        : [...current, n],
-                    )
-                  }}
-                  className={`w-9 h-9 text-xs font-bold rounded-lg border transition-colors ${
-                    (form.sdg_alignment || []).includes(n)
-                      ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-background text-foreground border-border hover:bg-muted'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-        </Tabs.Content>
-
-        {/* Tab 2: Voice & Tone */}
-        <Tabs.Content value="voice" className="bg-card border border-border rounded-2xl p-6 space-y-6">
-          <div>
-            <h3 className="font-semibold text-foreground mb-1">Voice & Tone</h3>
-            <p className="text-sm text-muted-foreground">
-              Adjust sliders to define your brand&apos;s communication style. AI will mirror these settings.
-            </p>
-          </div>
-          {TONE_LABELS.map(({ key, label, desc }) => (
-            <div key={key}>
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="text-sm font-medium text-foreground">
-                    {label}
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-2">
-                    {desc}
-                  </span>
-                </div>
-                <span className="text-sm font-semibold text-primary w-8 text-right">
-                  {form[key as ToneKey] ?? 50}
-                </span>
-              </div>
-              <Slider.Root
-                min={0}
-                max={100}
-                step={5}
-                value={[form[key as ToneKey] ?? 50]}
-                onValueChange={([v]) => set(key as ToneKey, v)}
-                className="relative flex items-center select-none touch-none w-full h-5"
+      {/* Section: Sector and SDGs */}
+      <SectionCard icon={Globe2} title="Sector and SDGs">
+        <div>
+          <label className={labelClass}>Sector Focus</label>
+          <div className="flex flex-wrap gap-2">
+            {SECTOR_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => toggleSector(opt.value)}
+                className={`px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
+                  (form.sector_focus || []).includes(opt.value)
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-background text-foreground border-border hover:bg-muted'
+                }`}
               >
-                <Slider.Track className="bg-muted relative grow rounded-full h-2">
-                  <Slider.Range className="absolute bg-primary-500 rounded-full h-full" />
-                </Slider.Track>
-                <Slider.Thumb className="block w-5 h-5 bg-white border-2 border-primary-500 rounded-full shadow-sm hover:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors" />
-              </Slider.Root>
-            </div>
-          ))}
-
-          <div className="pt-4 border-t border-border space-y-4">
-            <div>
-              <label className={labelClass}>Custom Vocabulary</label>
-              <p className="text-xs text-muted-foreground mb-2">
-                Words & phrases AI should use (brand terms, cause-specific language)
-              </p>
-              <TagInput
-                tags={form.custom_vocabulary || []}
-                onChange={(v) => set('custom_vocabulary', v)}
-                placeholder="Add word (press Enter)"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Words to Avoid</label>
-              <p className="text-xs text-muted-foreground mb-2">
-                Words or phrases AI should never use
-              </p>
-              <TagInput
-                tags={form.avoid_words || []}
-                onChange={(v) => set('avoid_words', v)}
-                placeholder="Add word to avoid"
-              />
-            </div>
-          </div>
-        </Tabs.Content>
-
-        {/* Tab 3: Founder Profile */}
-        <Tabs.Content value="founder" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <div>
-            <h3 className="font-semibold text-foreground mb-1">Founder Profile</h3>
-            <p className="text-sm text-muted-foreground">
-              Used for &quot;Founder Post&quot; content type — AI generates personal, authentic founder content.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className={labelClass}>Founder Name</label>
-              <input
-                value={form.founder_name || ''}
-                onChange={(e) => set('founder_name', e.target.value)}
-                className={inputClass}
-                placeholder="Anjali Mehta"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Founder Title</label>
-              <input
-                value={form.founder_title || ''}
-                onChange={(e) => set('founder_title', e.target.value)}
-                className={inputClass}
-                placeholder="Co-Founder & CEO"
-              />
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>Founder Bio</label>
-            <textarea
-              value={form.founder_bio || ''}
-              onChange={(e) => set('founder_bio', e.target.value)}
-              className={textareaClass}
-              rows={5}
-              placeholder="Anjali's journey, motivations, background, personal story, what drives their work..."
-            />
-          </div>
-        </Tabs.Content>
-
-        {/* Tab 4: Sample Posts */}
-        <Tabs.Content value="samples" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <div>
-            <h3 className="font-semibold text-foreground mb-1">Sample Posts</h3>
-            <p className="text-sm text-muted-foreground">
-              Paste 3–5 of your best posts. AI will analyze and learn your unique writing style.
-            </p>
-          </div>
-          {(form.sample_posts || ['', '', '']).map((post, i) => (
-            <div key={i}>
-              <label className={labelClass}>Sample Post {i + 1}</label>
-              <textarea
-                value={post}
-                onChange={(e) => {
-                  const updated = [...(form.sample_posts || ['', '', ''])]
-                  updated[i] = e.target.value
-                  set('sample_posts', updated)
-                }}
-                className={textareaClass}
-                rows={4}
-                placeholder={`Paste your ${i === 0 ? 'best' : 'another'} post here...`}
-              />
-            </div>
-          ))}
-          <button
-            onClick={() =>
-              set('sample_posts', [...(form.sample_posts || []), ''])
-            }
-            className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            <Plus className="w-4 h-4" />
-            Add another sample
-          </button>
-        </Tabs.Content>
-
-        {/* Tab 5: Social Handles */}
-        <Tabs.Content value="social" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <div>
-            <h3 className="font-semibold text-foreground mb-1">Social Handles</h3>
-            <p className="text-sm text-muted-foreground">
-              Used to personalize content with proper @ mentions and platform-specific formatting.
-            </p>
-          </div>
-          <div className="space-y-4">
-            {[
-              { key: 'linkedin_handle', label: 'LinkedIn', prefix: 'linkedin.com/company/' },
-              { key: 'instagram_handle', label: 'Instagram', prefix: '@' },
-              { key: 'twitter_handle', label: 'Twitter / X', prefix: '@' },
-            ].map(({ key, label, prefix }) => (
-              <div key={key}>
-                <label className={labelClass}>{label}</label>
-                <div className="flex">
-                  <span className="flex items-center h-10 px-3 border border-r-0 border-border bg-muted rounded-l-xl text-sm text-muted-foreground">
-                    {prefix}
-                  </span>
-                  <input
-                    value={form[key as keyof BrandProfile] as string || ''}
-                    onChange={(e) => set(key as keyof BrandProfile, e.target.value)}
-                    className="flex-1 h-10 px-3 border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-r-xl"
-                    placeholder={`your-${label.toLowerCase().replace(' / x', '')}-handle`}
-                  />
-                </div>
-              </div>
+                {opt.label}
+              </button>
             ))}
           </div>
-        </Tabs.Content>
-      </Tabs.Root>
+        </div>
+        <div>
+          <label className={labelClass}>SDG Alignment (Goals 1–17)</label>
+          <div className="grid grid-cols-9 sm:grid-cols-17 gap-1.5" style={{ gridTemplateColumns: 'repeat(9, minmax(0, 1fr))' }}>
+            {Array.from({ length: 17 }, (_, i) => i + 1).map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => toggleSdg(n)}
+                className={`aspect-square text-xs font-bold rounded-lg border transition-colors flex items-center justify-center ${
+                  (form.sdg_alignment || []).includes(n)
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-background text-foreground border-border hover:bg-muted'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Section: Brand Voice */}
+      <SectionCard icon={Volume2} title="Brand Voice">
+        <p className="text-sm text-muted-foreground -mt-2">
+          Rate each dimension 1–10. AI will mirror these settings when generating content.
+        </p>
+        <div className="space-y-5">
+          {TONE_DIMENSIONS.map(({ key, label }) => {
+            const value = (form[key as ToneDimensionKey] as number) ?? 5
+            return (
+              <div key={key}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-foreground">{label}</label>
+                  <span className="text-sm font-semibold text-primary w-6 text-right">{value}</span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={value}
+                  onChange={(e) => set(key as keyof BrandProfile, Number(e.target.value))}
+                  className="w-full h-2 accent-primary cursor-pointer rounded-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
+                  <span>1</span>
+                  <span>10</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </SectionCard>
+
+      {/* Section: Founder Voice */}
+      <SectionCard icon={User} title="Founder Voice">
+        <p className="text-sm text-muted-foreground -mt-2">
+          Used for &quot;Founder Post&quot; content — AI generates personal, authentic content.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className={labelClass}>Founder Name</label>
+            <input
+              value={form.founder_name || ''}
+              onChange={(e) => set('founder_name', e.target.value)}
+              className={inputClass}
+              placeholder="Anjali Mehta"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Founder Title</label>
+            <input
+              value={form.founder_title || ''}
+              onChange={(e) => set('founder_title', e.target.value)}
+              className={inputClass}
+              placeholder="Co-Founder & CEO"
+            />
+          </div>
+        </div>
+        <div>
+          <label className={labelClass}>Founder Bio</label>
+          <textarea
+            value={form.founder_bio || ''}
+            onChange={(e) => set('founder_bio', e.target.value)}
+            className={textareaClass}
+            rows={4}
+            placeholder="Journey, motivations, background, personal story..."
+          />
+        </div>
+      </SectionCard>
+
+      {/* Section: Socials */}
+      <SectionCard icon={Globe2} title="Socials">
+        <div className="space-y-4">
+          {[
+            { key: 'linkedin_handle', label: 'LinkedIn', prefix: 'linkedin.com/company/' },
+            { key: 'instagram_handle', label: 'Instagram', prefix: '@' },
+            { key: 'twitter_handle', label: 'Twitter / X', prefix: '@' },
+          ].map(({ key, label, prefix }) => (
+            <div key={key}>
+              <label className={labelClass}>{label}</label>
+              <div className="flex">
+                <span className="flex items-center h-10 px-3 border border-r-0 border-border bg-muted rounded-l-xl text-sm text-muted-foreground whitespace-nowrap">
+                  {prefix}
+                </span>
+                <input
+                  value={(form[key as keyof BrandProfile] as string) || ''}
+                  onChange={(e) => set(key as keyof BrandProfile, e.target.value)}
+                  className="flex-1 h-10 px-3 border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-r-xl"
+                  placeholder={`your-${label.toLowerCase().replace(' / x', '')}-handle`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* Section: Vocabulary */}
+      <SectionCard icon={BookOpen} title="Vocabulary">
+        <div>
+          <label className={labelClass}>Custom Vocabulary</label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Words and phrases AI should use. One per line.
+          </p>
+          <textarea
+            value={vocabText}
+            onChange={(e) => setVocabText(e.target.value)}
+            className={textareaClass}
+            rows={4}
+            placeholder={'menstrual health\nperiod dignity\nwash champion'}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Words to Avoid</label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Words or phrases AI should never use. One per line.
+          </p>
+          <textarea
+            value={avoidText}
+            onChange={(e) => setAvoidText(e.target.value)}
+            className={textareaClass}
+            rows={4}
+            placeholder={'jargon\noffensive term'}
+          />
+        </div>
+      </SectionCard>
+
+      {/* Bottom save */}
+      <div className="flex justify-end pb-8">
+        <button
+          onClick={handleSave}
+          disabled={updateMutation.isPending}
+          className="flex items-center gap-2 h-10 px-6 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors"
+        >
+          {updateMutation.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          Save Profile
+        </button>
+      </div>
     </div>
   )
 }

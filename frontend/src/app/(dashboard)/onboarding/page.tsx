@@ -3,84 +3,118 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
-import * as Slider from '@radix-ui/react-slider'
 import toast from 'react-hot-toast'
 import {
-  Building2,
-  Mic2,
-  User,
-  Sparkles,
   ChevronRight,
   ChevronLeft,
-  Check,
   Loader2,
+  Briefcase,
+  Heart,
+  GraduationCap,
+  MessageCircle,
+  Linkedin,
+  Instagram,
+  Twitter,
+  Sparkles,
 } from 'lucide-react'
 import { brandProfileApi } from '@/lib/api'
-import { cn, getSectorOptions } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth-store'
 
-const STEPS = [
-  { id: 1, title: 'Organization', icon: Building2, desc: 'Tell us about your org' },
-  { id: 2, title: 'Brand Voice', icon: Mic2, desc: 'Set your communication style' },
-  { id: 3, title: 'Founder', icon: User, desc: 'Optional personal touch' },
-  { id: 4, title: "Let's Create!", icon: Sparkles, desc: 'Generate your first post' },
+const SECTOR_OPTIONS = [
+  { value: 'menstrual_hygiene', label: 'Menstrual Hygiene' },
+  { value: 'sanitation', label: 'Sanitation' },
+  { value: 'wash', label: 'WASH' },
+  { value: 'csr', label: 'CSR' },
+  { value: 'sustainability', label: 'Sustainability' },
+  { value: 'education', label: 'Education' },
+  { value: 'health', label: 'Health' },
+  { value: 'other', label: 'Other' },
 ]
+
+const TONE_CARDS = [
+  {
+    key: 'professional',
+    label: 'Professional',
+    icon: Briefcase,
+    desc: 'Formal, authoritative, and expert-driven communication.',
+  },
+  {
+    key: 'inspirational',
+    label: 'Inspirational',
+    icon: Sparkles,
+    desc: 'Uplifting, motivating, and emotionally resonant stories.',
+  },
+  {
+    key: 'educational',
+    label: 'Educational',
+    icon: GraduationCap,
+    desc: 'Clear, informative, and data-driven content.',
+  },
+  {
+    key: 'conversational',
+    label: 'Conversational',
+    icon: MessageCircle,
+    desc: 'Warm, relatable, and community-oriented voice.',
+  },
+] as const
+
+type ToneKey = (typeof TONE_CARDS)[number]['key']
+
+function toneToValues(tone: ToneKey) {
+  switch (tone) {
+    case 'professional':
+      return { tone_professional: 9, tone_warm: 4, tone_inspirational: 5, tone_educational: 8, tone_urgent: 5 }
+    case 'inspirational':
+      return { tone_professional: 5, tone_warm: 8, tone_inspirational: 9, tone_educational: 4, tone_urgent: 5 }
+    case 'educational':
+      return { tone_professional: 7, tone_warm: 5, tone_inspirational: 5, tone_educational: 9, tone_urgent: 4 }
+    case 'conversational':
+      return { tone_professional: 4, tone_warm: 9, tone_inspirational: 7, tone_educational: 5, tone_urgent: 3 }
+  }
+}
+
+const inputClass =
+  'w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
+const labelClass = 'block text-sm font-medium text-foreground mb-1.5'
 
 export default function OnboardingPage() {
   const router = useRouter()
   const { organization } = useAuthStore()
-  const sectorOptions = getSectorOptions()
 
   const [step, setStep] = useState(1)
-  const [orgData, setOrgData] = useState({
-    organization_name: organization?.name || '',
-    tagline: '',
-    mission_statement: '',
-    sector_focus: [] as string[],
+  const [data, setData] = useState({
+    org_name: organization?.name || '',
+    sector: '',
     website: '',
+    tone: 'professional' as ToneKey,
+    linkedin_handle: '',
+    instagram_handle: '',
+    twitter_handle: '',
   })
-  const [voiceData, setVoiceData] = useState({
-    tone_professional: 70,
-    tone_warm: 60,
-    tone_inspirational: 55,
-    tone_educational: 50,
-    tone_urgent: 35,
-  })
-  const [founderData, setFounderData] = useState({
-    founder_name: '',
-    founder_title: '',
-    founder_bio: '',
-  })
+
+  const setField = (key: keyof typeof data, value: string) =>
+    setData((d) => ({ ...d, [key]: value }))
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const toneValues = toneToValues(data.tone)
       await brandProfileApi.update({
-        ...orgData,
-        ...voiceData,
-        ...founderData,
-        sdg_alignment: [],
-        custom_vocabulary: [],
-        avoid_words: [],
+        organization_name: data.org_name,
+        sector_focus: data.sector ? [data.sector] : [],
+        linkedin_handle: data.linkedin_handle || undefined,
+        instagram_handle: data.instagram_handle || undefined,
+        twitter_handle: data.twitter_handle || undefined,
+        ...toneValues,
       })
     },
     onSuccess: () => {
-      toast.success("Brand profile saved! Let's generate your first post.")
+      toast.success('Brand profile set up! Time to create content.')
       router.push('/content')
     },
     onError: () => toast.error('Something went wrong. Please try again.'),
   })
 
-  const progress = ((step - 1) / (STEPS.length - 1)) * 100
-
-  const canProceed = () => {
-    if (step === 1) return orgData.organization_name.trim().length > 1
-    return true
-  }
-
-  const handleNext = () => {
-    if (step < STEPS.length) setStep(step + 1)
-    else saveMutation.mutate()
-  }
+  const progressPct = ((step - 1) / 2) * 100
 
   return (
     <div className="max-w-2xl mx-auto py-8 animate-fade-in">
@@ -89,57 +123,29 @@ export default function OnboardingPage() {
         <div className="w-12 h-12 bg-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Sparkles className="w-6 h-6 text-white" />
         </div>
-        <h1 className="text-2xl font-bold text-foreground">
-          Welcome to Brandora AI
-        </h1>
+        <h1 className="text-2xl font-bold text-foreground">Welcome to Brandora AI</h1>
         <p className="text-muted-foreground mt-2">
-          Let&apos;s set up your brand profile in 3 quick steps.
+          Set up your brand profile in 3 quick steps.
         </p>
       </div>
 
       {/* Progress bar */}
       <div className="mb-8">
+        <div className="flex justify-between text-xs text-muted-foreground mb-2">
+          <span>Step {step} of 3</span>
+          <span>{Math.round(progressPct)}% complete</span>
+        </div>
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div
             className="h-full bg-primary-500 rounded-full transition-all duration-500"
-            style={{ width: `${progress}%` }}
+            style={{ width: `${progressPct}%` }}
           />
-        </div>
-        <div className="flex justify-between mt-3">
-          {STEPS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => s.id < step && setStep(s.id)}
-              className="flex flex-col items-center gap-1"
-            >
-              <div
-                className={cn(
-                  'w-8 h-8 rounded-full flex items-center justify-center transition-all text-sm',
-                  s.id < step
-                    ? 'bg-primary-600 text-white'
-                    : s.id === step
-                      ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 border-2 border-primary-400'
-                      : 'bg-muted text-muted-foreground',
-                )}
-              >
-                {s.id < step ? <Check className="w-4 h-4" /> : s.id}
-              </div>
-              <span
-                className={cn(
-                  'text-xs hidden sm:block',
-                  s.id === step ? 'text-foreground font-medium' : 'text-muted-foreground',
-                )}
-              >
-                {s.title}
-              </span>
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* Step content */}
-      <div className="bg-card border border-border rounded-2xl p-6">
-        {/* Step 1: Organization */}
+      {/* Step card */}
+      <div className="bg-card border border-border rounded-2xl p-6 min-h-[340px]">
+        {/* Step 1: Org details */}
         {step === 1 && (
           <div className="space-y-5 animate-fade-in">
             <div>
@@ -151,35 +157,26 @@ export default function OnboardingPage() {
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Organization Name *
+              <label className={labelClass}>
+                Organization Name <span className="text-destructive">*</span>
               </label>
               <input
-                value={orgData.organization_name}
-                onChange={(e) =>
-                  setOrgData({ ...orgData, organization_name: e.target.value })
-                }
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={data.org_name}
+                onChange={(e) => setField('org_name', e.target.value)}
+                className={inputClass}
                 placeholder="Your NGO or company"
                 autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Sector
-              </label>
+              <label className={labelClass}>Sector</label>
               <select
-                value={orgData.sector_focus[0] || ''}
-                onChange={(e) =>
-                  setOrgData({
-                    ...orgData,
-                    sector_focus: e.target.value ? [e.target.value] : [],
-                  })
-                }
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={data.sector}
+                onChange={(e) => setField('sector', e.target.value)}
+                className={inputClass}
               >
                 <option value="">Select your sector</option>
-                {sectorOptions.map((o) => (
+                {SECTOR_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
@@ -187,158 +184,131 @@ export default function OnboardingPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Mission (optional)
-              </label>
-              <textarea
-                value={orgData.mission_statement}
-                onChange={(e) =>
-                  setOrgData({ ...orgData, mission_statement: e.target.value })
-                }
-                className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-                rows={3}
-                placeholder="Our mission is to..."
+              <label className={labelClass}>Website (optional)</label>
+              <input
+                value={data.website}
+                onChange={(e) => setField('website', e.target.value)}
+                className={inputClass}
+                placeholder="https://yourorg.org"
+                type="url"
               />
             </div>
           </div>
         )}
 
-        {/* Step 2: Brand Voice */}
+        {/* Step 2: Tone cards */}
         {step === 2 && (
           <div className="space-y-5 animate-fade-in">
             <div>
               <h2 className="font-semibold text-foreground text-lg">
-                What&apos;s your brand voice?
+                Choose your brand voice
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Drag sliders to describe how you communicate. AI mirrors your style.
+                Select the tone that best represents how you communicate.
               </p>
             </div>
-            {[
-              { key: 'tone_professional', label: 'Professional ↔ Casual' },
-              { key: 'tone_warm', label: 'Formal ↔ Warm' },
-              { key: 'tone_inspirational', label: 'Factual ↔ Inspirational' },
-              { key: 'tone_educational', label: 'Simple ↔ Educational' },
-              { key: 'tone_urgent', label: 'Relaxed ↔ Urgent' },
-            ].map(({ key, label }) => (
-              <div key={key}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-foreground">
-                    {label}
-                  </span>
-                  <span className="text-xs font-semibold text-primary">
-                    {voiceData[key as keyof typeof voiceData]}
-                  </span>
-                </div>
-                <Slider.Root
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={[voiceData[key as keyof typeof voiceData]]}
-                  onValueChange={([v]) =>
-                    setVoiceData({ ...voiceData, [key]: v })
-                  }
-                  className="relative flex items-center select-none touch-none w-full h-5"
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {TONE_CARDS.map(({ key, label, icon: Icon, desc }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setField('tone', key)}
+                  className={`text-left p-4 rounded-xl border-2 transition-all ${
+                    data.tone === key
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                      : 'border-border bg-background hover:border-primary-300 hover:bg-muted/30'
+                  }`}
                 >
-                  <Slider.Track className="bg-muted relative grow rounded-full h-2">
-                    <Slider.Range className="absolute bg-primary-500 rounded-full h-full" />
-                  </Slider.Track>
-                  <Slider.Thumb className="block w-5 h-5 bg-white border-2 border-primary-500 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
-                </Slider.Root>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Icon
+                      className={`w-5 h-5 ${
+                        data.tone === key ? 'text-primary-600' : 'text-muted-foreground'
+                      }`}
+                    />
+                    <span
+                      className={`font-semibold text-sm ${
+                        data.tone === key ? 'text-primary-700 dark:text-primary-300' : 'text-foreground'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Step 3: Founder */}
+        {/* Step 3: Socials */}
         {step === 3 && (
           <div className="space-y-5 animate-fade-in">
             <div>
               <h2 className="font-semibold text-foreground text-lg">
-                Founder Profile
+                Connect your social handles
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Optional — enables &quot;Founder Post&quot; content type with your personal voice.
+                Optional — used to personalize content with platform-specific formatting.
               </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Founder Name
-              </label>
-              <input
-                value={founderData.founder_name}
-                onChange={(e) =>
-                  setFounderData({ ...founderData, founder_name: e.target.value })
-                }
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                placeholder="Your name"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Title
-              </label>
-              <input
-                value={founderData.founder_title}
-                onChange={(e) =>
-                  setFounderData({ ...founderData, founder_title: e.target.value })
-                }
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                placeholder="Founder & CEO"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Brief Bio
-              </label>
-              <textarea
-                value={founderData.founder_bio}
-                onChange={(e) =>
-                  setFounderData({ ...founderData, founder_bio: e.target.value })
-                }
-                className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-                rows={4}
-                placeholder="Your story, motivation, impact journey..."
-              />
-            </div>
-            <button
-              onClick={() => setStep(4)}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Skip this step →
-            </button>
-          </div>
-        )}
-
-        {/* Step 4: Ready */}
-        {step === 4 && (
-          <div className="text-center space-y-5 py-4 animate-fade-in">
-            <div className="w-20 h-20 bg-primary-100 dark:bg-primary-900/30 rounded-2xl flex items-center justify-center mx-auto">
-              <Sparkles className="w-10 h-10 text-primary-600" />
-            </div>
-            <div>
-              <h2 className="font-bold text-foreground text-xl">
-                Your brand is ready!
-              </h2>
-              <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-                Brandora AI has learned your brand voice. Click below to generate
-                your first AI-powered social media post.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              {[
-                '✍️ LinkedIn thought leadership',
-                '📸 Instagram impact story',
-                '🎬 Reel script for awareness day',
-                '❤️ CSR story for stakeholders',
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-2 bg-muted/50 rounded-xl px-3 py-2"
-                >
-                  <span className="text-sm text-muted-foreground">{item}</span>
+            <div className="space-y-4">
+              <div>
+                <label className={labelClass}>
+                  <span className="flex items-center gap-1.5">
+                    <Linkedin className="w-4 h-4" />
+                    LinkedIn Handle
+                  </span>
+                </label>
+                <div className="flex">
+                  <span className="flex items-center h-10 px-3 border border-r-0 border-border bg-muted rounded-l-xl text-sm text-muted-foreground whitespace-nowrap">
+                    linkedin.com/company/
+                  </span>
+                  <input
+                    value={data.linkedin_handle}
+                    onChange={(e) => setField('linkedin_handle', e.target.value)}
+                    className="flex-1 h-10 px-3 border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-r-xl"
+                    placeholder="your-company"
+                  />
                 </div>
-              ))}
+              </div>
+              <div>
+                <label className={labelClass}>
+                  <span className="flex items-center gap-1.5">
+                    <Instagram className="w-4 h-4" />
+                    Instagram Handle
+                  </span>
+                </label>
+                <div className="flex">
+                  <span className="flex items-center h-10 px-3 border border-r-0 border-border bg-muted rounded-l-xl text-sm text-muted-foreground">
+                    @
+                  </span>
+                  <input
+                    value={data.instagram_handle}
+                    onChange={(e) => setField('instagram_handle', e.target.value)}
+                    className="flex-1 h-10 px-3 border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-r-xl"
+                    placeholder="yourhandle"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>
+                  <span className="flex items-center gap-1.5">
+                    <Twitter className="w-4 h-4" />
+                    Twitter / X Handle
+                  </span>
+                </label>
+                <div className="flex">
+                  <span className="flex items-center h-10 px-3 border border-r-0 border-border bg-muted rounded-l-xl text-sm text-muted-foreground">
+                    @
+                  </span>
+                  <input
+                    value={data.twitter_handle}
+                    onChange={(e) => setField('twitter_handle', e.target.value)}
+                    className="flex-1 h-10 px-3 border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-r-xl"
+                    placeholder="yourhandle"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -348,7 +318,8 @@ export default function OnboardingPage() {
       <div className="flex items-center justify-between mt-6">
         {step > 1 ? (
           <button
-            onClick={() => setStep(step - 1)}
+            type="button"
+            onClick={() => setStep((s) => s - 1)}
             className="flex items-center gap-2 h-10 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -358,26 +329,45 @@ export default function OnboardingPage() {
           <div />
         )}
 
-        <button
-          onClick={handleNext}
-          disabled={!canProceed() || saveMutation.isPending}
-          className="flex items-center gap-2 h-10 px-6 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm ml-auto"
-        >
-          {saveMutation.isPending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : null}
-          {step === STEPS.length ? (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Generate first post
-            </>
-          ) : (
-            <>
-              Next
-              <ChevronRight className="w-4 h-4" />
-            </>
+        <div className="flex items-center gap-2 ml-auto">
+          {step === 3 && (
+            <button
+              type="button"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-2 h-10 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Skip for now
+            </button>
           )}
-        </button>
+
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={() => setStep((s) => s + 1)}
+              disabled={step === 1 && !data.org_name.trim()}
+              className="flex items-center gap-2 h-10 px-6 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              Continue
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-2 h-10 px-6 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              {saveMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              Complete Setup
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

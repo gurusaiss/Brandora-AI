@@ -1,23 +1,24 @@
 'use client'
 
 import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   Sparkles,
-  ChevronDown,
-  ChevronUp,
   History,
-  Clock,
   Loader2,
-  X,
+  Copy,
+  Check,
+  ThumbsUp,
+  ThumbsDown,
+  Bookmark,
+  BookmarkCheck,
+  RefreshCw,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
-import { PlatformSelector } from '@/components/content-studio/platform-selector'
-import { GenerationResult } from '@/components/content-studio/generation-result'
-import { EmptyState } from '@/components/shared/empty-state'
-import {
-  useGenerateContent,
-  useContentHistory,
-} from '@/hooks/use-content'
-import { useContentStore } from '@/store/content-store'
+import { contentApi } from '@/lib/api'
 import {
   cn,
   getPlatformLabel,
@@ -25,15 +26,37 @@ import {
   getPlatformIcon,
   truncate,
   formatRelativeTime,
+  getQualityColor,
+  getQualityLabel,
 } from '@/lib/utils'
-import type { Tone, Language } from '@/types'
+import type {
+  Platform,
+  Tone,
+  Language,
+  ContentGeneration,
+  ContentGenerateRequest,
+  ContentHistoryFilters,
+  PaginatedResponse,
+} from '@/types'
 
-const TONES: Array<{ value: Tone; label: string; desc: string }> = [
-  { value: 'professional', label: 'Professional', desc: 'Polished & formal' },
-  { value: 'inspirational', label: 'Inspirational', desc: 'Motivating & uplifting' },
-  { value: 'educational', label: 'Educational', desc: 'Informative & clear' },
-  { value: 'urgent', label: 'Urgent', desc: 'Action-driving' },
-  { value: 'conversational', label: 'Conversational', desc: 'Friendly & direct' },
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PLATFORMS: Array<{ value: Platform; label: string }> = [
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'twitter', label: 'Twitter / X' },
+  { value: 'reel_script', label: 'Reel Script' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'csr_story', label: 'CSR Story' },
+  { value: 'founder_post', label: 'Founder Post' },
+]
+
+const TONES: Array<{ value: Tone; label: string }> = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'inspirational', label: 'Inspirational' },
+  { value: 'educational', label: 'Educational' },
+  { value: 'urgent', label: 'Urgent' },
+  { value: 'conversational', label: 'Conversational' },
 ]
 
 const LANGUAGES: Array<{ value: Language; label: string }> = [
@@ -44,322 +67,700 @@ const LANGUAGES: Array<{ value: Language; label: string }> = [
   { value: 'kn', label: 'Kannada' },
 ]
 
-const SAMPLE_TOPICS = [
-  'World Menstrual Hygiene Day 2026 — how our NGO is making a difference',
-  'Clean water access: 5 ways we\'re changing lives in rural India',
-  'Our CSR impact report 2025 — 50,000 girls reached',
-  'Breaking the taboo around menstrual health in schools',
-]
+const CONTENT_KEYS = {
+  all: ['content'] as const,
+  history: (filters: ContentHistoryFilters) =>
+    ['content', 'history', filters] as const,
+}
 
-export default function ContentStudioPage() {
-  const [showContext, setShowContext] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
+// ─── Quality Badge ────────────────────────────────────────────────────────────
 
-  const {
-    generationInput,
-    currentGeneration,
-    repurposedContent,
-    isGenerating,
-    setGenerationInput,
-  } = useContentStore()
+function QualityBadge({ score }: { score?: number }) {
+  if (score == null) return null
+  const colorClass =
+    score >= 75
+      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+      : score >= 50
+        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+  return (
+    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', colorClass)}>
+      {getQualityLabel(score)} {score}
+    </span>
+  )
+}
 
-  const generateMutation = useGenerateContent()
-  const { data: historyData } = useContentHistory({ page: 1, page_size: 10 })
+// ─── Loading Skeleton ─────────────────────────────────────────────────────────
 
-  const handleGenerate = () => {
-    if (!generationInput.topic.trim()) return
-    generateMutation.mutate({
-      topic: generationInput.topic,
-      platform: generationInput.platform,
-      tone: generationInput.tone,
-      context: generationInput.context || undefined,
-      language: generationInput.language,
-      include_hashtags: true,
-    })
+function HistorySkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="bg-card border border-border rounded-xl p-4 animate-pulse"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 space-y-2">
+              <div className="h-3 bg-muted rounded w-2/3" />
+              <div className="h-3 bg-muted rounded w-1/3" />
+            </div>
+            <div className="h-6 w-16 bg-muted rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Result Card ──────────────────────────────────────────────────────────────
+
+function ResultCard({
+  result,
+  onRegenerate,
+}: {
+  result: ContentGeneration
+  onRegenerate: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [isSaved, setIsSaved] = useState(result.is_saved)
+  const [feedback, setFeedback] = useState<'thumbs_up' | 'thumbs_down' | null>(
+    result.feedback ?? null,
+  )
+  const queryClient = useQueryClient()
+
+  const saveMutation = useMutation({
+    mutationFn: () => contentApi.save(result.id),
+    onSuccess: () => {
+      setIsSaved((prev) => !prev)
+      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.all })
+      toast.success(isSaved ? 'Removed from saved' : 'Content saved!')
+    },
+    onError: () => toast.error('Failed to save content'),
+  })
+
+  const feedbackMutation = useMutation({
+    mutationFn: (fb: 'thumbs_up' | 'thumbs_down') =>
+      contentApi.feedback(result.id, fb),
+    onSuccess: (_, fb) => {
+      setFeedback(fb)
+      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.all })
+    },
+    onError: () => toast.error('Failed to submit feedback'),
+  })
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(result.generated_content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
-  const canGenerate =
-    generationInput.topic.trim().length > 0 && !isGenerating
-
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-foreground">Content Studio</h2>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Generate AI-powered social media content for your campaigns
-          </p>
+    <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'text-xs font-medium px-2 py-0.5 rounded-full',
+              getPlatformColor(result.platform),
+            )}
+          >
+            {getPlatformIcon(result.platform)} {getPlatformLabel(result.platform)}
+          </span>
+          <QualityBadge score={result.quality_score} />
         </div>
+        <span className="text-xs text-muted-foreground">{result.ai_model_used}</span>
+      </div>
+
+      {/* Generated content */}
+      <div className="relative">
+        <textarea
+          readOnly
+          value={result.generated_content}
+          rows={10}
+          className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+        />
         <button
-          onClick={() => setShowHistory(!showHistory)}
-          className="flex items-center gap-2 h-9 px-4 border border-border bg-card hover:bg-muted rounded-xl text-sm font-medium text-foreground transition-colors"
+          onClick={handleCopy}
+          className="absolute top-2 right-2 h-8 px-3 bg-card border border-border hover:bg-muted rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
         >
-          <History className="w-4 h-4" />
-          History
-          {historyData?.total ? (
-            <span className="text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 px-1.5 py-0.5 rounded-full">
-              {historyData.total}
-            </span>
-          ) : null}
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-green-500" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              Copy
+            </>
+          )}
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        {/* ── Left panel: Input form ────────────────────────────────────── */}
-        <div className="xl:col-span-2 space-y-5">
-          <div className="bg-card border border-border rounded-2xl p-5 space-y-5">
-            {/* Topic input */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">
-                What do you want to post about?
-              </label>
-              <textarea
-                value={generationInput.topic}
-                onChange={(e) =>
-                  setGenerationInput({ topic: e.target.value })
-                }
-                placeholder={SAMPLE_TOPICS[0]}
-                rows={4}
-                className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
-              />
-              {/* Sample topics */}
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Try:</p>
-                {SAMPLE_TOPICS.slice(1, 3).map((topic) => (
-                  <button
-                    key={topic}
-                    onClick={() => setGenerationInput({ topic })}
-                    className="block w-full text-left text-xs text-primary hover:underline truncate"
-                  >
-                    &rarr; {topic}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Platform selector */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">
-                Platform
-              </label>
-              <PlatformSelector
-                value={generationInput.platform}
-                onChange={(platform) => setGenerationInput({ platform })}
-              />
-            </div>
-
-            {/* Tone selector */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">
-                Tone
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {TONES.map((tone) => (
-                  <button
-                    key={tone.value}
-                    onClick={() => setGenerationInput({ tone: tone.value })}
-                    title={tone.desc}
-                    className={cn(
-                      'h-8 px-3 rounded-lg text-xs font-medium transition-colors border',
-                      generationInput.tone === tone.value
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-background text-foreground border-border hover:bg-muted',
-                    )}
-                  >
-                    {tone.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Language */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">
-                Language
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.value}
-                    onClick={() =>
-                      setGenerationInput({ language: lang.value })
-                    }
-                    className={cn(
-                      'h-8 px-3 rounded-lg text-xs font-medium transition-colors border',
-                      generationInput.language === lang.value
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-background text-foreground border-border hover:bg-muted',
-                    )}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Additional context (collapsible) */}
-            <div>
-              <button
-                onClick={() => setShowContext(!showContext)}
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showContext ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-                Additional context
-                <span className="text-xs">(optional)</span>
-              </button>
-              {showContext && (
-                <textarea
-                  value={generationInput.context}
-                  onChange={(e) =>
-                    setGenerationInput({ context: e.target.value })
-                  }
-                  placeholder="Add campaign brief, key statistics, target audience, or specific messages to include..."
-                  rows={3}
-                  className="mt-2 w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
-                />
-              )}
-            </div>
-
-            {/* Generate button */}
-            <button
-              onClick={handleGenerate}
-              disabled={!canGenerate}
-              className="w-full h-12 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2.5 text-sm shadow-sm shadow-primary/20"
+      {/* Hashtags */}
+      {result.hashtags && result.hashtags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {result.hashtags.map((tag) => (
+            <span
+              key={tag}
+              className="text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full border border-primary-200 dark:border-primary-800"
             >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Generate Content
-                </>
-              )}
-            </button>
+              {tag.startsWith('#') ? tag : `#${tag}`}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Action row */}
+      <div className="flex items-center gap-2 flex-wrap border-t border-border pt-3">
+        <button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+          className={cn(
+            'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
+            isSaved
+              ? 'bg-primary-600 text-white border-primary-600 hover:bg-primary-700'
+              : 'bg-background text-foreground border-border hover:bg-muted',
+          )}
+        >
+          {isSaved ? (
+            <BookmarkCheck className="w-3.5 h-3.5" />
+          ) : (
+            <Bookmark className="w-3.5 h-3.5" />
+          )}
+          {isSaved ? 'Saved' : 'Save'}
+        </button>
+
+        <button
+          onClick={() => feedbackMutation.mutate('thumbs_up')}
+          disabled={feedbackMutation.isPending}
+          className={cn(
+            'h-8 w-8 rounded-lg flex items-center justify-center border transition-colors',
+            feedback === 'thumbs_up'
+              ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700'
+              : 'bg-background text-foreground border-border hover:bg-muted',
+          )}
+        >
+          <ThumbsUp className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          onClick={() => feedbackMutation.mutate('thumbs_down')}
+          disabled={feedbackMutation.isPending}
+          className={cn(
+            'h-8 w-8 rounded-lg flex items-center justify-center border transition-colors',
+            feedback === 'thumbs_down'
+              ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700'
+              : 'bg-background text-foreground border-border hover:bg-muted',
+          )}
+        >
+          <ThumbsDown className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          onClick={onRegenerate}
+          className="ml-auto h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-border bg-background hover:bg-muted text-foreground transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Regenerate
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function ContentPage() {
+  const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate')
+
+  // Generate tab state
+  const [platform, setPlatform] = useState<Platform>('linkedin')
+  const [topic, setTopic] = useState('')
+  const [tone, setTone] = useState<Tone>('professional')
+  const [language, setLanguage] = useState<Language>('en')
+  const [context, setContext] = useState('')
+  const [includeHashtags, setIncludeHashtags] = useState(true)
+  const [result, setResult] = useState<ContentGeneration | null>(null)
+
+  // History tab state
+  const [historyFilters, setHistoryFilters] = useState<ContentHistoryFilters>({
+    page: 1,
+  })
+
+  const queryClient = useQueryClient()
+
+  // Generate mutation
+  const generateMutation = useMutation({
+    mutationFn: (data: ContentGenerateRequest) =>
+      contentApi.generate(data).then((r) => r.data as ContentGeneration),
+    onSuccess: (data) => {
+      setResult(data)
+      toast.success('Content generated successfully!')
+    },
+    onError: (error: { response?: { data?: { detail?: string } } }) => {
+      const message = error?.response?.data?.detail || 'Failed to generate content'
+      toast.error(message)
+    },
+  })
+
+  // History query — only enabled when on history tab
+  const historyQuery = useQuery({
+    queryKey: CONTENT_KEYS.history(historyFilters),
+    queryFn: async () => {
+      const response = await contentApi.getHistory(historyFilters)
+      return response.data as PaginatedResponse<ContentGeneration>
+    },
+    enabled: activeTab === 'history',
+    staleTime: 30_000,
+  })
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => contentApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.all })
+      toast.success('Content deleted')
+    },
+    onError: () => toast.error('Failed to delete content'),
+  })
+
+  const topicTooShort = topic.trim().length < 10
+  const canGenerate = !topicTooShort && !generateMutation.isPending
+
+  const handleGenerate = () => {
+    if (!canGenerate) return
+    generateMutation.mutate({
+      topic: topic.trim(),
+      platform,
+      tone,
+      language,
+      context: context.trim() || undefined,
+      include_hashtags: includeHashtags,
+    })
+  }
+
+  const historyItems = historyQuery.data?.items ?? []
+  const historyTotal = historyQuery.data?.total ?? 0
+  const historyPageSize = historyQuery.data?.page_size ?? 10
+  const currentPage = historyFilters.page ?? 1
+  const totalPages = Math.ceil(historyTotal / historyPageSize)
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      {/* Page header */}
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-foreground">Content Studio</h2>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Generate AI-powered social media content for your campaigns
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit mb-6">
+        <button
+          onClick={() => setActiveTab('generate')}
+          className={cn(
+            'flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium transition-colors',
+            activeTab === 'generate'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Sparkles className="w-4 h-4" />
+          Generate
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={cn(
+            'flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium transition-colors',
+            activeTab === 'history'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <History className="w-4 h-4" />
+          History
+        </button>
+      </div>
+
+      {/* ── GENERATE TAB ─────────────────────────────────────────────────────── */}
+      {activeTab === 'generate' && (
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          {/* Left: form */}
+          <div className="xl:col-span-2 space-y-5">
+            <div className="bg-card border border-border rounded-2xl p-5 space-y-5">
+              {/* Platform selector */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground">
+                  Platform
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {PLATFORMS.map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() => setPlatform(p.value)}
+                      className={cn(
+                        'h-9 px-3 rounded-lg text-xs font-medium transition-colors border text-left',
+                        platform === p.value
+                          ? 'ring-2 ring-primary bg-primary-50 dark:bg-primary-900/20 border-primary text-primary-700 dark:text-primary-300'
+                          : 'bg-background text-foreground border-border hover:bg-muted',
+                      )}
+                    >
+                      {getPlatformIcon(p.value)} {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Topic */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-semibold text-foreground">
+                  Topic
+                  <span className="text-destructive ml-1">*</span>
+                </label>
+                <textarea
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="What do you want to post about? (minimum 10 characters)"
+                  rows={4}
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                />
+                {topic.length > 0 && topicTooShort && (
+                  <p className="text-xs text-destructive">
+                    Minimum 10 characters ({topic.trim().length}/10)
+                  </p>
+                )}
+              </div>
+
+              {/* Tone */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground">
+                  Tone
+                </label>
+                <select
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value as Tone)}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                >
+                  {TONES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Language */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground">
+                  Language
+                </label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                >
+                  {LANGUAGES.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Context (optional) */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-semibold text-foreground">
+                  Additional Context{' '}
+                  <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  placeholder="Campaign brief, key stats, target audience, specific messages..."
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                />
+              </div>
+
+              {/* Include hashtags */}
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={includeHashtags}
+                  onChange={(e) => setIncludeHashtags(e.target.checked)}
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                />
+                <span className="text-sm font-medium text-foreground group-hover:text-foreground/80">
+                  Include hashtags
+                </span>
+              </label>
+
+              {/* Generate button */}
+              <button
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                className="w-full h-12 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2.5 text-sm shadow-sm"
+              >
+                {generateMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate Content
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: result */}
+          <div className="xl:col-span-3">
+            {generateMutation.isPending && (
+              <div className="bg-card border border-border rounded-2xl p-10 flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-2xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                    <Sparkles className="w-8 h-8 text-primary-600 animate-pulse" />
+                  </div>
+                  <div className="absolute inset-0 rounded-2xl border-2 border-primary-400 animate-ping opacity-30" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-foreground">
+                    AI is crafting your content...
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Analysing topic, optimising for {getPlatformLabel(platform)}, applying brand voice
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!generateMutation.isPending && result && (
+              <ResultCard
+                result={result}
+                onRegenerate={handleGenerate}
+              />
+            )}
+
+            {!generateMutation.isPending && !result && (
+              <div className="bg-card border border-border rounded-2xl min-h-[400px] flex flex-col items-center justify-center gap-3 text-center p-8">
+                <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+                  <Sparkles className="w-7 h-7 text-muted-foreground" />
+                </div>
+                <p className="font-semibold text-foreground">Ready to create?</p>
+                <p className="text-sm text-muted-foreground max-w-xs">
+                  Fill in your topic on the left, choose a platform and tone, then click Generate. Your AI-powered content will appear here.
+                </p>
+              </div>
+            )}
           </div>
         </div>
+      )}
 
-        {/* ── Right panel: Results ───────────────────────────────────────── */}
-        <div className="xl:col-span-3 space-y-4">
-          {isGenerating && (
-            <div className="bg-card border border-border rounded-2xl p-8 flex flex-col items-center gap-4">
-              <div className="relative">
-                <div className="w-16 h-16 rounded-2xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 text-primary-600 animate-pulse" />
-                </div>
-                <div className="absolute inset-0 rounded-2xl border-2 border-primary-400 animate-ping opacity-30" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-foreground">
-                  AI is crafting your content...
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Analyzing topic, optimizing for{' '}
-                  {getPlatformLabel(generationInput.platform)}, applying brand
-                  voice
-                </p>
-              </div>
+      {/* ── HISTORY TAB ──────────────────────────────────────────────────────── */}
+      {activeTab === 'history' && (
+        <div className="space-y-5">
+          {/* Filters */}
+          <div className="bg-card border border-border rounded-2xl p-4 flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-foreground whitespace-nowrap">
+                Platform
+              </label>
+              <select
+                value={historyFilters.platform ?? ''}
+                onChange={(e) =>
+                  setHistoryFilters((prev) => ({
+                    ...prev,
+                    platform: (e.target.value as Platform) || undefined,
+                    page: 1,
+                  }))
+                }
+                className="h-9 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+              >
+                <option value="">All platforms</option>
+                {PLATFORMS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={historyFilters.is_saved === true}
+                onChange={(e) =>
+                  setHistoryFilters((prev) => ({
+                    ...prev,
+                    is_saved: e.target.checked ? true : undefined,
+                    page: 1,
+                  }))
+                }
+                className="w-4 h-4 rounded border-border text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+              />
+              <span className="text-sm font-medium text-foreground">Saved only</span>
+            </label>
+
+            {historyTotal > 0 && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {historyTotal} item{historyTotal !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          {/* List */}
+          {historyQuery.isLoading && <HistorySkeleton />}
+
+          {historyQuery.isError && (
+            <div className="bg-card border border-border rounded-2xl p-8 text-center">
+              <p className="text-sm text-destructive">Failed to load history. Please try again.</p>
             </div>
           )}
 
-          {!isGenerating && currentGeneration && (
-            <GenerationResult
-              content={currentGeneration}
-              onNewGeneration={() => useContentStore.getState().reset()}
-            />
+          {!historyQuery.isLoading && !historyQuery.isError && historyItems.length === 0 && (
+            <div className="bg-card border border-border rounded-2xl min-h-[300px] flex flex-col items-center justify-center gap-3 text-center p-8">
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+                <History className="w-7 h-7 text-muted-foreground" />
+              </div>
+              <p className="font-semibold text-foreground">No content yet</p>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                {historyFilters.platform || historyFilters.is_saved
+                  ? 'No items match the current filters.'
+                  : 'Generate your first piece of content to see it here.'}
+              </p>
+            </div>
           )}
 
-          {/* Repurposed content */}
-          {repurposedContent.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-accent" />
-                Repurposed versions ({repurposedContent.length})
-              </h3>
-              {repurposedContent.map((c) => (
-                <GenerationResult key={c.id} content={c} />
+          {!historyQuery.isLoading && historyItems.length > 0 && (
+            <div className="space-y-3">
+              {historyItems.map((item) => (
+                <HistoryCard
+                  key={item.id}
+                  item={item}
+                  onDelete={() => deleteMutation.mutate(item.id)}
+                  isDeleting={deleteMutation.isPending}
+                />
               ))}
             </div>
           )}
 
-          {!isGenerating && !currentGeneration && (
-            <EmptyState
-              icon={<Sparkles className="w-8 h-8" />}
-              title="Ready to create?"
-              description="Enter your topic on the left, choose a platform and tone, then click Generate. Your AI-powered content will appear here."
-              className="bg-card border border-border rounded-2xl min-h-[400px]"
-            />
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                disabled={currentPage <= 1}
+                onClick={() =>
+                  setHistoryFilters((prev) => ({
+                    ...prev,
+                    page: (prev.page ?? 1) - 1,
+                  }))
+                }
+                className="h-9 w-9 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() =>
+                  setHistoryFilters((prev) => ({
+                    ...prev,
+                    page: (prev.page ?? 1) + 1,
+                  }))
+                }
+                className="h-9 w-9 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── History Card ─────────────────────────────────────────────────────────────
+
+function HistoryCard({
+  item,
+  onDelete,
+  isDeleting,
+}: {
+  item: ContentGeneration
+  onDelete: () => void
+  isDeleting: boolean
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(item.generated_content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 flex items-start justify-between gap-3">
+      <div className="flex items-start gap-3 flex-1 min-w-0">
+        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center text-base flex-shrink-0">
+          {getPlatformIcon(item.platform)}
+        </div>
+        <div className="flex-1 min-w-0 space-y-1">
+          <p className="text-sm font-medium text-foreground truncate">
+            {truncate(item.input_topic, 70)}
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className={cn(
+                'text-xs px-2 py-0.5 rounded-full font-medium',
+                getPlatformColor(item.platform),
+              )}
+            >
+              {getPlatformLabel(item.platform)}
+            </span>
+            <QualityBadge score={item.quality_score} />
+            {item.is_saved && (
+              <span className="text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full border border-primary-200 dark:border-primary-800">
+                Saved
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {formatRelativeTime(item.created_at)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* History drawer */}
-      {showHistory && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={() => setShowHistory(false)}
-          />
-          <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-card border-l border-border z-50 flex flex-col animate-slide-in-right">
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <h3 className="font-semibold text-foreground">Content History</h3>
-              <button
-                onClick={() => setShowHistory(false)}
-                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {!historyData?.items?.length ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No history yet
-                </p>
-              ) : (
-                historyData.items.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      useContentStore.getState().setCurrentGeneration(item)
-                      setShowHistory(false)
-                    }}
-                    className="w-full flex items-start gap-3 p-3 rounded-xl hover:bg-muted transition-colors text-left"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-sm flex-shrink-0">
-                      {getPlatformIcon(item.platform)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {truncate(item.input_topic, 50)}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span
-                          className={cn(
-                            'text-xs px-1.5 py-0.5 rounded',
-                            getPlatformColor(item.platform),
-                          )}
-                        >
-                          {getPlatformLabel(item.platform)}
-                        </span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                          <Clock className="w-2.5 h-2.5" />
-                          {formatRelativeTime(item.created_at)}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <button
+          onClick={handleCopy}
+          title="Copy content"
+          className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-muted flex items-center justify-center transition-colors"
+        >
+          {copied ? (
+            <Check className="w-3.5 h-3.5 text-green-500" />
+          ) : (
+            <Copy className="w-3.5 h-3.5" />
+          )}
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={isDeleting}
+          title="Delete"
+          className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:border-red-700 dark:hover:text-red-400 flex items-center justify-center transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   )
 }

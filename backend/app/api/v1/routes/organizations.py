@@ -17,6 +17,29 @@ from app.schemas.user import User, UserOrganizationMembership
 router = APIRouter()
 
 
+class OrgUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
+    sector: Optional[str] = None
+
+
+class OrgResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    sector: str
+    subscription_tier: str
+    ai_generations_used: int
+    ai_generations_limit: int
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ── Kept for backward compat (used by other routes in this file) ──────────────
+
 class OrganizationUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
     logo_url: Optional[str] = None
@@ -34,8 +57,8 @@ class OrganizationResponse(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
-    logo_url: Optional[str]
-    website: Optional[str]
+    logo_url: Optional[str] = None
+    website: Optional[str] = None
     sector: str
     subscription_tier: str
     ai_generations_used: int
@@ -43,6 +66,8 @@ class OrganizationResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
+# ── Shared helper ─────────────────────────────────────────────────────────────
 
 async def _get_user_org_with_role(user: User, db: AsyncSession):
     m_result = await db.execute(
@@ -62,23 +87,42 @@ async def _get_user_org_with_role(user: User, db: AsyncSession):
     return org_result.scalar_one(), m.role
 
 
-@router.get("/me", response_model=OrganizationResponse)
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/me", response_model=OrgResponse)
 async def get_my_organization(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Return the current user's primary organization."""
     org, _ = await _get_user_org_with_role(current_user, db)
-    return OrganizationResponse.model_validate(org)
+    return OrgResponse.model_validate(org)
 
 
-@router.put("/me", response_model=OrganizationResponse)
+@router.patch("/me", response_model=OrgResponse)
 async def update_my_organization(
-    payload: OrganizationUpdateRequest,
+    payload: OrgUpdateRequest,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update the organization (admin only)."""
+    org, role = await _get_user_org_with_role(current_user, db)
+    if role != "admin":
+        raise AuthorizationError("Only organization admins can update organization settings.")
+
+    for field, value in payload.model_dump(exclude_none=True).items():
+        setattr(org, field, value)
+    await db.flush()
+    return OrgResponse.model_validate(org)
+
+
+@router.put("/me", response_model=OrganizationResponse)
+async def update_my_organization_put(
+    payload: OrganizationUpdateRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the organization via PUT (admin only). Kept for backward compatibility."""
     org, role = await _get_user_org_with_role(current_user, db)
     if role != "admin":
         raise AuthorizationError("Only organization admins can update organization settings.")

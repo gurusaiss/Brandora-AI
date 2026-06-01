@@ -1,66 +1,45 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import * as Tabs from '@radix-ui/react-tabs'
+import { useRouter } from 'next/navigation'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import {
-  Building2,
-  Users,
-  CreditCard,
-  Key,
-  Link2,
-  Loader2,
-  Plus,
-  Trash2,
-  Copy,
-  Mail,
-  Shield,
-  Zap,
-  Check,
-} from 'lucide-react'
-import { teamApi, apiKeyApi } from '@/lib/api'
+import { Loader2, Trash2, Mail, LogOut, Users, Building2, UserCircle2, AlertTriangle } from 'lucide-react'
+import { teamApi, authApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
-import { cn, copyToClipboard, formatDate, getSubscriptionBadge } from '@/lib/utils'
-import type { TeamMember, ApiKey } from '@/types'
+import type { TeamMember } from '@/types'
 
-const PLAN_FEATURES = {
-  free: {
-    name: 'Free',
-    price: '₹0',
-    period: '/month',
-    generations: 50,
-    features: ['50 AI generations/month', '1 user', 'Basic platforms', 'Email support'],
-  },
-  pro: {
-    name: 'Pro',
-    price: '₹2,999',
-    period: '/month',
-    generations: 500,
-    features: ['500 AI generations/month', '5 users', 'All platforms', 'Priority support', 'Advanced analytics'],
-  },
-  growth: {
-    name: 'Growth',
-    price: '₹7,999',
-    period: '/month',
-    generations: 2000,
-    features: ['2,000 AI generations/month', '15 users', 'All platforms + API', 'Dedicated support', 'Custom brand voice'],
-  },
-  enterprise: {
-    name: 'Enterprise',
-    price: 'Custom',
-    period: '',
-    generations: -1,
-    features: ['Unlimited generations', 'Unlimited users', 'Custom AI training', 'SLA + dedicated CSM', 'On-premise options'],
-  },
+const inputClass =
+  'w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
+const labelClass = 'block text-sm font-medium text-foreground mb-1.5'
+
+function SectionCard({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: React.ElementType
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
+      <div className="flex items-center gap-2">
+        <Icon className="w-5 h-5 text-primary" />
+        <h3 className="font-semibold text-foreground">{title}</h3>
+      </div>
+      {children}
+    </div>
+  )
 }
 
 export default function SettingsPage() {
-  const { organization } = useAuthStore()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { user, organization, logout: storeLogout } = useAuthStore()
+
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
-  const [newKeyName, setNewKeyName] = useState('')
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
 
   const { data: members, isLoading: membersLoading } = useQuery({
     queryKey: ['team-members'],
@@ -70,415 +49,243 @@ export default function SettingsPage() {
     },
   })
 
-  const { data: apiKeys, isLoading: keysLoading, refetch: refetchKeys } = useQuery({
-    queryKey: ['api-keys'],
-    queryFn: async () => {
-      const res = await apiKeyApi.list()
-      return res.data as ApiKey[]
-    },
-  })
-
   const inviteMutation = useMutation({
     mutationFn: () => teamApi.invite({ email: inviteEmail, role: inviteRole }),
     onSuccess: () => {
       toast.success(`Invitation sent to ${inviteEmail}`)
       setInviteEmail('')
+      queryClient.invalidateQueries({ queryKey: ['team-members'] })
     },
     onError: () => toast.error('Failed to send invitation'),
   })
 
-  const createKeyMutation = useMutation({
-    mutationFn: () => apiKeyApi.create(newKeyName),
-    onSuccess: (res) => {
-      setGeneratedKey(res.data.key)
-      setNewKeyName('')
-      refetchKeys()
-    },
-    onError: () => toast.error('Failed to create API key'),
-  })
-
-  const revokeKeyMutation = useMutation({
-    mutationFn: (id: string) => apiKeyApi.revoke(id),
+  const removeMutation = useMutation({
+    mutationFn: (memberId: string) => teamApi.remove(memberId),
     onSuccess: () => {
-      toast.success('API key revoked')
-      refetchKeys()
+      toast.success('Member removed')
+      queryClient.invalidateQueries({ queryKey: ['team-members'] })
     },
+    onError: () => toast.error('Failed to remove member'),
   })
 
-  const currentPlan = organization?.subscription_tier || 'free'
-  const badge = getSubscriptionBadge(currentPlan)
+  const handleSignOut = async () => {
+    try {
+      await authApi.logout()
+    } catch {
+      // proceed even if API call fails
+    }
+    storeLogout()
+    router.push('/login')
+  }
+
+  const usedPct = Math.min(
+    ((organization?.ai_generations_used ?? 0) / (organization?.ai_generations_limit ?? 50)) * 100,
+    100,
+  )
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in pb-10">
       <div>
         <h2 className="text-xl font-bold text-foreground">Settings</h2>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Manage your organization, team, and account settings
+          Manage your account, organization, and team
         </p>
       </div>
 
-      <Tabs.Root defaultValue="org">
-        <Tabs.List className="flex gap-1 bg-muted p-1 rounded-xl mb-6 overflow-x-auto">
-          {[
-            { value: 'org', label: 'Organization', icon: Building2 },
-            { value: 'team', label: 'Team', icon: Users },
-            { value: 'billing', label: 'Billing', icon: CreditCard },
-            { value: 'api', label: 'API Keys', icon: Key },
-            { value: 'integrations', label: 'Integrations', icon: Link2 },
-          ].map((tab) => {
-            const Icon = tab.icon
-            return (
-              <Tabs.Trigger
-                key={tab.value}
-                value={tab.value}
-                className="flex items-center gap-1.5 flex-shrink-0 h-9 px-3 text-sm font-medium rounded-lg transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground hover:text-foreground"
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {tab.label}
-              </Tabs.Trigger>
-            )
-          })}
-        </Tabs.List>
-
-        {/* Organization */}
-        <Tabs.Content value="org" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <h3 className="font-semibold text-foreground">Organization Settings</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Organization Name</label>
-              <input
-                defaultValue={organization?.name}
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Slug</label>
-              <input
-                defaultValue={organization?.slug}
-                className="w-full h-10 px-3 rounded-xl border border-border bg-muted text-muted-foreground text-sm focus:outline-none cursor-not-allowed"
-                readOnly
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Sector</label>
-              <input
-                defaultValue={organization?.sector}
-                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
+      {/* Section 1: Account */}
+      <SectionCard icon={UserCircle2} title="Account">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className={labelClass}>Full Name</label>
+            <input
+              value={user?.full_name || ''}
+              readOnly
+              className={`${inputClass} bg-muted cursor-not-allowed`}
+            />
           </div>
-          <button className="flex items-center gap-2 h-10 px-4 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold rounded-xl transition-colors">
-            Save Changes
-          </button>
-        </Tabs.Content>
-
-        {/* Team */}
-        <Tabs.Content value="team" className="bg-card border border-border rounded-2xl p-6 space-y-6">
-          <h3 className="font-semibold text-foreground">Team Management</h3>
-
-          {/* Invite */}
-          <div className="bg-muted/30 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-medium text-foreground">Invite team member</p>
-            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="colleague@organization.org"
-                className="flex-1 h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-                className="h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="admin">Admin</option>
-                <option value="editor">Editor</option>
-                <option value="viewer">Viewer</option>
-              </select>
-              <button
-                onClick={() => inviteMutation.mutate()}
-                disabled={!inviteEmail || inviteMutation.isPending}
-                className="flex items-center gap-1.5 h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
-              >
-                {inviteMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Mail className="w-4 h-4" />
-                )}
-                Invite
-              </button>
-            </div>
+          <div>
+            <label className={labelClass}>Email</label>
+            <input
+              value={user?.email || ''}
+              readOnly
+              className={`${inputClass} bg-muted cursor-not-allowed`}
+            />
           </div>
+        </div>
+      </SectionCard>
 
-          {/* Members list */}
-          {membersLoading ? (
-            <div className="space-y-3">
-              {[...Array(2)].map((_, i) => (
-                <div key={i} className="h-14 bg-muted rounded-xl shimmer-bg" />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(members || []).map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted/30 transition-colors"
-                >
-                  <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-sm font-bold text-primary-700 dark:text-primary-300 flex-shrink-0">
-                    {member.full_name?.[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{member.full_name}</p>
-                    <p className="text-xs text-muted-foreground">{member.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      'text-xs px-2 py-0.5 rounded-full font-medium capitalize',
-                      member.role === 'owner' ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground',
-                    )}>
-                      {member.role}
-                    </span>
-                    {member.role !== 'owner' && (
-                      <button
-                        onClick={() => teamApi.remove(member.id)}
-                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {!members?.length && (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No team members yet. Invite someone above!
-                </p>
-              )}
-            </div>
-          )}
-        </Tabs.Content>
-
-        {/* Billing */}
-        <Tabs.Content value="billing" className="space-y-6">
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-foreground">Current Plan</h3>
-              <span className={cn('text-sm font-semibold px-3 py-1 rounded-full', badge.color)}>
-                {badge.label}
+      {/* Section 2: Organization */}
+      <SectionCard icon={Building2} title="Organization">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Organization Name</label>
+            <input
+              value={organization?.name || ''}
+              readOnly
+              className={`${inputClass} bg-muted cursor-not-allowed`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Sector</label>
+            <input
+              value={organization?.sector || ''}
+              readOnly
+              className={`${inputClass} bg-muted cursor-not-allowed`}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className={`${labelClass} mb-0`}>Subscription</label>
+            <span className="text-xs font-semibold capitalize px-2.5 py-0.5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
+              {organization?.subscription_tier || 'free'}
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>AI Generations used</span>
+              <span>
+                {organization?.ai_generations_used ?? 0} / {organization?.ai_generations_limit ?? 50}
               </span>
             </div>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-2xl font-bold text-foreground">
-                  {PLAN_FEATURES[currentPlan as keyof typeof PLAN_FEATURES]?.price}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {PLAN_FEATURES[currentPlan as keyof typeof PLAN_FEATURES]?.period}
-                  </span>
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">AI Generations</p>
-                <p className="font-semibold text-foreground">
-                  {organization?.ai_generations_used} / {organization?.ai_generations_limit}
-                </p>
-              </div>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden mb-4">
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary-500 rounded-full"
-                style={{
-                  width: `${Math.min(((organization?.ai_generations_used ?? 0) / (organization?.ai_generations_limit ?? 50)) * 100, 100)}%`,
-                }}
+                className="h-full bg-primary-500 rounded-full transition-all"
+                style={{ width: `${usedPct}%` }}
               />
             </div>
           </div>
+        </div>
+      </SectionCard>
 
-          {/* Plan cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {Object.entries(PLAN_FEATURES).map(([key, plan]) => (
-              <div
-                key={key}
-                className={cn(
-                  'bg-card border-2 rounded-2xl p-5 transition-all',
-                  currentPlan === key
-                    ? 'border-primary-500 shadow-glow'
-                    : 'border-border hover:border-primary-300',
-                )}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold text-foreground">{plan.name}</h4>
-                  {currentPlan === key && (
-                    <span className="text-xs bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full font-medium">
-                      Current
-                    </span>
-                  )}
-                </div>
-                <p className="text-xl font-bold text-foreground mb-1">
-                  {plan.price}
-                  <span className="text-sm font-normal text-muted-foreground">{plan.period}</span>
-                </p>
-                <ul className="space-y-1.5 mt-3">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Check className="w-3 h-3 text-primary flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                {currentPlan !== key && (
-                  <button className="w-full mt-4 h-9 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5" />
-                    Upgrade to {plan.name}
-                  </button>
-                )}
-              </div>
+      {/* Section 3: Team Members */}
+      <SectionCard icon={Users} title="Team Members">
+        {/* Members list */}
+        {membersLoading ? (
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-14 bg-muted rounded-xl animate-pulse" />
             ))}
           </div>
-        </Tabs.Content>
-
-        {/* API Keys */}
-        <Tabs.Content value="api" className="bg-card border border-border rounded-2xl p-6 space-y-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-semibold text-foreground">API Keys</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Use API keys to integrate Brandora AI into your own apps.
-              </p>
-            </div>
-          </div>
-
-          {/* Create new key */}
-          <div className="bg-muted/30 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-medium text-foreground">Create new API key</p>
-            <div className="flex gap-2">
-              <input
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="Key name (e.g. Production App)"
-                className="flex-1 h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-              <button
-                onClick={() => createKeyMutation.mutate()}
-                disabled={!newKeyName || createKeyMutation.isPending}
-                className="flex items-center gap-1.5 h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
-              >
-                {createKeyMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Plus className="w-4 h-4" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left text-xs font-medium text-muted-foreground pb-2 pr-4">Name</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground pb-2 pr-4">Email</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground pb-2 pr-4">Role</th>
+                  <th className="pb-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(members || []).map((member) => (
+                  <tr key={member.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="py-3 pr-4 font-medium text-foreground whitespace-nowrap">
+                      {member.full_name}
+                    </td>
+                    <td className="py-3 pr-4 text-muted-foreground">{member.email}</td>
+                    <td className="py-3 pr-4">
+                      <span
+                        className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+                          member.role === 'owner'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                            : member.role === 'admin'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {member.role}
+                      </span>
+                    </td>
+                    <td className="py-3 text-right">
+                      {member.role !== 'owner' && (
+                        <button
+                          onClick={() => removeMutation.mutate(member.id)}
+                          disabled={removeMutation.isPending}
+                          className="p-1.5 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                          title="Remove member"
+                        >
+                          {removeMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!members?.length && (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                      No team members yet.
+                    </td>
+                  </tr>
                 )}
-                Create
-              </button>
-            </div>
+              </tbody>
+            </table>
           </div>
+        )}
 
-          {/* Generated key display */}
-          {generatedKey && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-4 h-4 text-green-600" />
-                <p className="text-sm font-medium text-green-700 dark:text-green-300">
-                  Copy your key now — it won&apos;t be shown again!
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 px-3 py-2 rounded-lg font-mono break-all">
-                  {generatedKey}
-                </code>
-                <button
-                  onClick={() => {
-                    copyToClipboard(generatedKey)
-                    toast.success('Copied!')
-                  }}
-                  className="p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"
-                >
-                  <Copy className="w-4 h-4 text-green-600" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Existing keys */}
-          {keysLoading ? (
-            <div className="space-y-2">
-              {[...Array(2)].map((_, i) => (
-                <div key={i} className="h-12 bg-muted rounded-xl shimmer-bg" />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(apiKeys || []).map((key) => (
-                <div
-                  key={key.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-border"
-                >
-                  <Key className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{key.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {key.key_preview}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-xs text-muted-foreground">
-                      Created {formatDate(key.created_at)}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => revokeKeyMutation.mutate(key.id)}
-                    className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                    title="Revoke key"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-              {!apiKeys?.length && (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No API keys yet.
-                </p>
+        {/* Invite form */}
+        <div className="border-t border-border pt-5 space-y-3">
+          <p className="text-sm font-medium text-foreground">Invite a team member</p>
+          <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="colleague@organization.org"
+              className={`flex-1 ${inputClass}`}
+            />
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value)}
+              className="h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="admin">Admin</option>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+            <button
+              onClick={() => inviteMutation.mutate()}
+              disabled={!inviteEmail.trim() || inviteMutation.isPending}
+              className="flex items-center gap-1.5 h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              {inviteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Mail className="w-4 h-4" />
               )}
-            </div>
-          )}
-        </Tabs.Content>
-
-        {/* Integrations */}
-        <Tabs.Content value="integrations" className="bg-card border border-border rounded-2xl p-6 space-y-5">
-          <h3 className="font-semibold text-foreground">Integrations</h3>
-          <p className="text-sm text-muted-foreground">
-            Connect your social media accounts for direct publishing (coming soon).
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[
-              { name: 'LinkedIn', desc: 'Publish posts directly', emoji: '💼', soon: true },
-              { name: 'Instagram', desc: 'Schedule reels & posts', emoji: '📸', soon: true },
-              { name: 'Twitter / X', desc: 'Auto-tweet content', emoji: '🐦', soon: true },
-              { name: 'Buffer', desc: 'Use with Buffer scheduler', emoji: '📅', soon: true },
-            ].map((int) => (
-              <div
-                key={int.name}
-                className="flex items-center gap-3 p-4 border border-border rounded-xl"
-              >
-                <span className="text-2xl">{int.emoji}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">{int.name}</p>
-                  <p className="text-xs text-muted-foreground">{int.desc}</p>
-                </div>
-                {int.soon ? (
-                  <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-lg">
-                    Soon
-                  </span>
-                ) : (
-                  <button className="text-xs bg-primary-600 text-white px-3 py-1.5 rounded-lg font-medium">
-                    Connect
-                  </button>
-                )}
-              </div>
-            ))}
+              Invite
+            </button>
           </div>
-        </Tabs.Content>
-      </Tabs.Root>
+        </div>
+      </SectionCard>
+
+      {/* Section 4: Danger Zone */}
+      <div className="bg-card border border-destructive/40 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-destructive" />
+          <h3 className="font-semibold text-foreground">Danger Zone</h3>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Sign out</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              You will be redirected to the login page.
+            </p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 h-10 px-4 border border-destructive text-destructive hover:bg-destructive hover:text-white text-sm font-semibold rounded-xl transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
