@@ -69,7 +69,7 @@ class ContentGeneration(Base, TimestampMixin):
     children: Mapped[List["ContentGeneration"]] = relationship(
         "ContentGeneration",
         foreign_keys=[parent_generation_id],
-        backref="parent",
+        remote_side=[id],
     )
 
     def __repr__(self) -> str:
