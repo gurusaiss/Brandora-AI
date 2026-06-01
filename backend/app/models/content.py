@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 # ── Request Models ────────────────────────────────────────────────────────────
 
 class ContentGenerateRequest(BaseModel):
+    # Allow fields that start with "model_" without Pydantic namespace warnings
+    model_config = {"protected_namespaces": ()}
+
     topic: str = Field(..., min_length=10, max_length=500, description="The topic or subject for content generation")
     platform: Literal[
         "linkedin", "instagram", "twitter", "reel_script", "carousel", "csr_story", "founder_post"
