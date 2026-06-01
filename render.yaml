@@ -28,8 +28,9 @@ services:
         value: production
 
       # ── These must be filled in Render dashboard → Environment ─
-      # DATABASE_URL: your Supabase pooler connection string
-      #   postgresql+asyncpg://postgres.xxxx:PASSWORD@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+      # DATABASE_URL: your Supabase TRANSACTION pooler connection string (port 6543)
+      #   postgresql+asyncpg://postgres.xxxx:PASSWORD@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
+      #   NOTE: URL-encode special chars in password: @ → %40  # → %23
       - key: DATABASE_URL
         sync: false
 

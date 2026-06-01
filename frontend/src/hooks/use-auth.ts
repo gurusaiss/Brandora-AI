@@ -35,10 +35,12 @@ export function useLogin() {
       toast.success(`Welcome back, ${data.user.full_name.split(' ')[0]}!`)
       router.push('/content')
     },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
+    onError: (error: { response?: { data?: { detail?: string; message?: string } } }) => {
       setLoading(false)
       const message =
-        error?.response?.data?.detail || 'Invalid email or password'
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        'Invalid email or password'
       toast.error(message)
     },
   })
@@ -64,13 +66,15 @@ export function useRegister() {
       if (typeof window !== 'undefined') {
         localStorage.setItem('refresh_token', data.refresh_token)
       }
-      toast.success('Account created! Let\'s set up your brand.')
+      toast.success("Account created! Let's set up your brand.")
       router.push('/onboarding')
     },
-    onError: (error: { response?: { data?: { detail?: string } } }) => {
+    onError: (error: { response?: { data?: { detail?: string; message?: string } } }) => {
       setLoading(false)
       const message =
-        error?.response?.data?.detail || 'Registration failed. Try again.'
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        'Registration failed. Please try again.'
       toast.error(message)
     },
   })

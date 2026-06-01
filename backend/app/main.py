@@ -98,10 +98,17 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ──────────────────────────────────────────────────────────────────
+    # Starlette ≥ 0.38 raises ValueError when allow_origins=["*"] AND
+    # allow_credentials=True simultaneously (violates CORS spec).
+    # JWT bearer-token auth doesn't require credentials mode (that's for
+    # cookies), so we safely disable credentials for the wildcard case.
+    _origins = settings.allowed_origins_list
+    _allow_credentials = "*" not in _origins  # True only for specific origins
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.allowed_origins_list,
-        allow_credentials=True,
+        allow_origins=_origins,
+        allow_credentials=_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID"],
