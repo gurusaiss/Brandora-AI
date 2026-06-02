@@ -264,3 +264,18 @@ async def delete_scheduled_post(
 
     await db.delete(post)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Manual publish trigger (no auth — for testing/ops; add IP guard before prod)
+# ---------------------------------------------------------------------------
+
+# TODO: Restrict to trusted IPs (e.g. internal Render network or admin IP)
+# before exposing to production. Add an IP whitelist middleware or a
+# X-Internal-Token header check.
+@router.post("/trigger-publish", tags=["Schedule"])
+async def trigger_publish():
+    """Manually trigger the scheduled post publisher (no auth — testing only)."""
+    from app.core.scheduler import process_scheduled_posts
+    await process_scheduled_posts()
+    return {"message": "Manual publish triggered"}

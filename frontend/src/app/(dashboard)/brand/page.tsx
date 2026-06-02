@@ -91,9 +91,29 @@ export default function BrandProfilePage() {
 
   useEffect(() => {
     if (profile) {
-      setForm(profile)
-      setVocabText((profile.custom_vocabulary || []).join('\n'))
-      setAvoidText((profile.avoid_words || []).join('\n'))
+      setForm({
+        organization_name: profile.organization_name ?? '',
+        tagline: profile.tagline ?? '',
+        mission_statement: profile.mission_statement ?? '',
+        about: profile.about ?? '',
+        sector_focus: Array.isArray(profile.sector_focus) ? profile.sector_focus : [],
+        sdg_alignment: Array.isArray(profile.sdg_alignment) ? profile.sdg_alignment : [],
+        tone_professional: Number(profile.tone_professional ?? 7),
+        tone_warm: Number(profile.tone_warm ?? 7),
+        tone_inspirational: Number(profile.tone_inspirational ?? 7),
+        tone_educational: Number(profile.tone_educational ?? 7),
+        tone_urgent: Number(profile.tone_urgent ?? 7),
+        founder_name: profile.founder_name ?? '',
+        founder_title: profile.founder_title ?? '',
+        founder_bio: profile.founder_bio ?? '',
+        custom_vocabulary: Array.isArray(profile.custom_vocabulary) ? profile.custom_vocabulary : [],
+        avoid_words: Array.isArray(profile.avoid_words) ? profile.avoid_words : [],
+        linkedin_handle: profile.linkedin_handle ?? '',
+        instagram_handle: profile.instagram_handle ?? '',
+        twitter_handle: profile.twitter_handle ?? '',
+      })
+      setVocabText((Array.isArray(profile.custom_vocabulary) ? profile.custom_vocabulary : []).join('\n'))
+      setAvoidText((Array.isArray(profile.avoid_words) ? profile.avoid_words : []).join('\n'))
     }
   }, [profile])
 
@@ -113,7 +133,7 @@ export default function BrandProfilePage() {
     setForm((f) => ({ ...f, [key]: value }))
 
   const toggleSector = (value: string) => {
-    const current = form.sector_focus || []
+    const current = Array.isArray(form.sector_focus) ? form.sector_focus : []
     set(
       'sector_focus',
       current.includes(value) ? current.filter((x) => x !== value) : [...current, value],
@@ -121,7 +141,7 @@ export default function BrandProfilePage() {
   }
 
   const toggleSdg = (n: number) => {
-    const current = form.sdg_alignment || []
+    const current = Array.isArray(form.sdg_alignment) ? form.sdg_alignment : []
     set(
       'sdg_alignment',
       current.includes(n) ? current.filter((x) => x !== n) : [...current, n],
@@ -229,7 +249,7 @@ export default function BrandProfilePage() {
                 type="button"
                 onClick={() => toggleSector(opt.value)}
                 className={`px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
-                  (form.sector_focus || []).includes(opt.value)
+                  (Array.isArray(form.sector_focus) ? form.sector_focus : []).includes(opt.value)
                     ? 'bg-primary-600 text-white border-primary-600'
                     : 'bg-background text-foreground border-border hover:bg-muted'
                 }`}
@@ -248,7 +268,7 @@ export default function BrandProfilePage() {
                 type="button"
                 onClick={() => toggleSdg(n)}
                 className={`aspect-square text-xs font-bold rounded-lg border transition-colors flex items-center justify-center ${
-                  (form.sdg_alignment || []).includes(n)
+                  (Array.isArray(form.sdg_alignment) ? form.sdg_alignment : []).includes(n)
                     ? 'bg-primary-600 text-white border-primary-600'
                     : 'bg-background text-foreground border-border hover:bg-muted'
                 }`}
@@ -267,7 +287,7 @@ export default function BrandProfilePage() {
         </p>
         <div className="space-y-5">
           {TONE_DIMENSIONS.map(({ key, label }) => {
-            const value = (form[key as ToneDimensionKey] as number) ?? 5
+            const value = Number(form[key as ToneDimensionKey] ?? 7)
             return (
               <div key={key}>
                 <div className="flex items-center justify-between mb-1.5">

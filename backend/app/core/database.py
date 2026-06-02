@@ -22,7 +22,7 @@ engine = create_async_engine(
     # already exists" errors.
     poolclass=NullPool if _is_transaction_pooler else None,
     # Disable asyncpg prepared-statement cache for transaction pooler
-    connect_args={"statement_cache_size": 0} if _is_transaction_pooler else {},
+    connect_args={"statement_cache_size": 0, "server_settings": {"application_name": "brandora"}} if _is_transaction_pooler else {},
     # These only apply when NOT using NullPool
     **({} if _is_transaction_pooler else {
         "pool_size": 5,

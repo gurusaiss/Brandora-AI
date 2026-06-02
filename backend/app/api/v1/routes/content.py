@@ -2,8 +2,11 @@
 Content generation routes.
 """
 import uuid
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,10 +22,35 @@ from app.models.content import (
     ContentRepurposeResponse,
 )
 from app.schemas.brand_profile import BrandProfile
+from app.schemas.campaign import Campaign, CampaignPost
 from app.schemas.content import ContentGeneration
 from app.schemas.organization import Organization
 from app.schemas.user import User, UserOrganizationMembership
 from app.services.ai_service import AIService
+
+
+# ── Inline request/response models for new endpoints ─────────────────────────
+
+class LinkToCampaignRequest(BaseModel):
+    campaign_id: uuid.UUID
+
+
+class ScheduleContentRequest(BaseModel):
+    scheduled_at: datetime
+    platform: Optional[str] = None
+
+
+class ScheduledPostResponse(BaseModel):
+    id: uuid.UUID
+    platform: str
+    content: str
+    hashtags: Optional[list] = None
+    scheduled_at: Optional[datetime] = None
+    status: str
+    campaign_id: Optional[uuid.UUID] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 router = APIRouter()
 ai_service = AIService()
@@ -196,15 +224,21 @@ async def repurpose_content(
 
 @router.get("/history", response_model=ContentListResponse)
 async def list_content(
-    platform: str | None = Query(None),
-    saved: bool | None = Query(None),
-    campaign_id: uuid.UUID | None = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    platform: str | None = Query(None, description="Filter by platform"),
+    is_saved: bool | None = Query(None, description="Filter by saved state"),
+    campaign_id: uuid.UUID | None = Query(None, description="Filter by campaign"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Paginated content generation history with optional filters."""
+    """
+    Paginated content generation history with optional filters.
+
+    Returns a truncated preview (300 chars) of generated_content for list performance.
+    Filters: platform, is_saved, campaign_id.
+    Ordered by created_at DESC (newest first).
+    """
     org = await _get_org_for_user(current_user, db)
 
     query = select(ContentGeneration).where(
@@ -213,8 +247,8 @@ async def list_content(
     )
     if platform:
         query = query.where(ContentGeneration.platform == platform)
-    if saved is not None:
-        query = query.where(ContentGeneration.is_saved == saved)
+    if is_saved is not None:
+        query = query.where(ContentGeneration.is_saved == is_saved)
     if campaign_id:
         query = query.where(ContentGeneration.campaign_id == campaign_id)
 
@@ -224,7 +258,7 @@ async def list_content(
     )
     total = count_result.scalar_one()
 
-    # Paginated results
+    # Paginated results — newest first
     query = (
         query.order_by(ContentGeneration.created_at.desc())
         .offset((page - 1) * page_size)
@@ -233,12 +267,16 @@ async def list_content(
     items_result = await db.execute(query)
     items = items_result.scalars().all()
 
+    def _truncate(text: str, limit: int = 300) -> str:
+        return text[:limit] + "…" if len(text) > limit else text
+
     return ContentListResponse(
         items=[
             ContentGenerateResponse(
                 id=i.id,
                 platform=i.platform,
-                generated_content=i.generated_content,
+                # Truncate to 300 chars for list-view performance
+                generated_content=_truncate(i.generated_content),
                 hashtags=i.hashtags or [],
                 quality_score=i.quality_score,
                 ai_model_used=i.ai_model_used,
@@ -386,3 +424,156 @@ async def record_feedback(
         campaign_id=gen.campaign_id,
         created_at=gen.created_at,
     )
+
+
+@router.post("/{content_id}/use-in-campaign")
+async def use_in_campaign(
+    content_id: uuid.UUID,
+    payload: LinkToCampaignRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Link a content generation to a campaign.
+
+    Creates a CampaignPost record and updates the generation's campaign_id.
+    Both the content and the target campaign must belong to the user's organisation.
+    """
+    org = await _get_org_for_user(current_user, db)
+
+    # Verify content ownership
+    gen_result = await db.execute(
+        select(ContentGeneration).where(
+            ContentGeneration.id == content_id,
+            ContentGeneration.organization_id == org.id,
+            ContentGeneration.is_deleted == False,
+        )
+    )
+    generation = gen_result.scalar_one_or_none()
+    if not generation:
+        raise HTTPException(status_code=404, detail=f"Content {content_id} not found.")
+
+    # Verify campaign ownership
+    campaign_result = await db.execute(
+        select(Campaign).where(
+            Campaign.id == payload.campaign_id,
+            Campaign.organization_id == org.id,
+        )
+    )
+    campaign = campaign_result.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign {payload.campaign_id} not found.",
+        )
+
+    # Update generation's campaign association
+    generation.campaign_id = payload.campaign_id
+
+    # Create CampaignPost linking the content to the campaign
+    campaign_post = CampaignPost(
+        id=uuid.uuid4(),
+        campaign_id=payload.campaign_id,
+        content_generation_id=content_id,
+        platform=generation.platform,
+        content=generation.generated_content,
+        hashtags=generation.hashtags or [],
+        status="draft",
+    )
+    db.add(campaign_post)
+    await db.flush()
+
+    return {"message": "Content linked to campaign", "campaign_id": str(payload.campaign_id)}
+
+
+@router.post("/{content_id}/schedule", response_model=ScheduledPostResponse, status_code=status.HTTP_201_CREATED)
+async def schedule_content(
+    content_id: uuid.UUID,
+    payload: ScheduleContentRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Schedule a content generation for publishing.
+
+    Creates a CampaignPost with status='scheduled' at the requested datetime.
+    If no platform is given, the generation's original platform is used.
+    If the generation already has a campaign_id, the post is linked to that campaign;
+    otherwise a default 'Scheduled Posts' campaign is found-or-created.
+    """
+    org = await _get_org_for_user(current_user, db)
+
+    # Verify content ownership
+    gen_result = await db.execute(
+        select(ContentGeneration).where(
+            ContentGeneration.id == content_id,
+            ContentGeneration.organization_id == org.id,
+            ContentGeneration.is_deleted == False,
+        )
+    )
+    generation = gen_result.scalar_one_or_none()
+    if not generation:
+        raise HTTPException(status_code=404, detail=f"Content {content_id} not found.")
+
+    # Determine platform
+    platform = payload.platform or generation.platform
+
+    # Ensure scheduled_at is timezone-aware
+    scheduled_at = payload.scheduled_at
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+
+    # Resolve target campaign
+    if generation.campaign_id:
+        campaign_result = await db.execute(
+            select(Campaign).where(
+                Campaign.id == generation.campaign_id,
+                Campaign.organization_id == org.id,
+            )
+        )
+        campaign = campaign_result.scalar_one_or_none()
+        if not campaign:
+            # campaign was deleted or mismatched — fall through to default
+            generation.campaign_id = None
+            campaign = None
+    else:
+        campaign = None
+
+    if campaign is None:
+        # Find or create the default "Scheduled Posts" campaign for the org
+        default_result = await db.execute(
+            select(Campaign)
+            .where(
+                Campaign.organization_id == org.id,
+                Campaign.name == "Scheduled Posts",
+            )
+            .limit(1)
+        )
+        campaign = default_result.scalar_one_or_none()
+        if not campaign:
+            campaign = Campaign(
+                id=uuid.uuid4(),
+                organization_id=org.id,
+                user_id=current_user.id,
+                name="Scheduled Posts",
+                campaign_type="custom",
+                status="active",
+            )
+            db.add(campaign)
+            await db.flush()
+
+    # Create the scheduled CampaignPost
+    post = CampaignPost(
+        id=uuid.uuid4(),
+        campaign_id=campaign.id,
+        content_generation_id=content_id,
+        platform=platform,
+        content=generation.generated_content,
+        hashtags=generation.hashtags or [],
+        scheduled_at=scheduled_at,
+        status="scheduled",
+    )
+    db.add(post)
+    await db.flush()
+
+    return ScheduledPostResponse.model_validate(post)

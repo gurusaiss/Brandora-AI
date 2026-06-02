@@ -10,72 +10,66 @@ from typing import Any, Dict, List, Optional
 PLATFORM_INSTRUCTIONS: Dict[str, str] = {
     "linkedin": """
 LinkedIn post requirements:
-- Length: 150-300 words optimal
-- Start with a powerful hook (question, statistic, or bold statement)
-- Use line breaks for readability (1-2 sentences per paragraph)
-- Include a clear call-to-action at the end
-- Professional yet personal tone
-- No markdown formatting (LinkedIn renders plain text)
-- End with 3-5 relevant hashtags on a new line
+- Professional tone. 150-300 words. Include a compelling hook in the first line (bold statement, surprising stat, or question).
+- Use line breaks for readability (1-2 sentences per paragraph). No markdown bold/italic — LinkedIn renders plain text.
+- Add relevant statistics or insights to build credibility.
+- End with an engaging question to drive comments and boost reach.
+- Close with 3-5 relevant hashtags on a new line.
 """,
     "instagram": """
 Instagram caption requirements:
-- Length: 100-150 words for main caption
-- Start with attention-grabbing first line (shows before "more")
-- Use emojis strategically (2-4 relevant ones)
-- Include a clear CTA (save, share, comment, visit link in bio)
-- End with 5-8 hashtags (mix niche + broad)
-- Warm, visual, and community-oriented tone
+- Engaging and visual. 80-150 words. Start with a hook emoji in the very first line (it shows before "more").
+- Use line breaks for readability — short punchy paragraphs.
+- Include a clear CTA (save, share, comment, visit link in bio).
+- End with 15-20 hashtags (mix niche + broad + location tags) on a separate line.
+- Warm, community-oriented tone.
 """,
     "twitter": """
 Twitter/X post requirements:
-- If single tweet: max 280 characters
-- If thread: 5-7 tweets, each building on the previous
-- Use numbers for threads (1/ 2/ 3/)
-- Punchy, direct, high-information density
-- End with a question or CTA for engagement
-- 2-3 hashtags maximum
+- Punchy and direct. Under 260 characters for a single tweet.
+- Strong hook — lead with the most interesting or surprising point.
+- High-information density: every word earns its place.
+- End with a question or CTA for engagement.
+- Use 2-3 hashtags maximum — Twitter penalises hashtag overuse.
+- If writing a thread: 5-7 tweets numbered (1/ 2/ 3/), each self-contained.
 """,
     "reel_script": """
-Instagram Reel script (60 seconds):
-- Hook (0-3 seconds): MUST grab attention immediately — start with "Did you know..." or a bold fact
-- Problem/Stat (3-15 seconds): shocking fact or relatable problem
-- Solution/Insight (15-45 seconds): core value delivery, actionable insight
-- CTA (45-60 seconds): clear action to take (follow, share, comment, visit)
-- Include visual direction notes in brackets: [ON SCREEN: text], [B-ROLL: description]
-- Conversational, energetic tone
-- Word count: 100-150 words for the spoken script
+Instagram Reel script — spoken-word format (approx. 60 seconds):
+- Hook (0-5 seconds): grab attention immediately — bold fact, question, or pattern interrupt.
+- Main (5-50 seconds / 30-45 sec of content): core message delivered in clear, conversational steps.
+- CTA (50-60 seconds / final 5-10 sec): single clear action — follow, share, comment, visit link.
+- Include visual/director notes in brackets: [ON SCREEN: text], [B-ROLL: description].
+- Conversational, energetic, first-person tone.
+- Word count: 100-150 words for the spoken portion only.
 """,
     "carousel": """
-Instagram/LinkedIn carousel outline:
-- Slide 1 (Cover): Bold title that makes people swipe (5-8 words max)
-- Slides 2-6: One key point per slide with clear hierarchy
+Instagram/LinkedIn carousel — numbered slide format:
+- Slide 1 (Cover): Bold title that makes people swipe (5-8 words max).
+- Slides 2-7: One key point per slide.
   - Slide Title: 5-7 words
   - Slide Body: 20-40 words
   - Visual suggestion in brackets: [VISUAL: description]
-- Slide 7 (Final): Summary + CTA + branding
+- Final Slide (CTA): Summary + single clear action + branding note.
 - Format each slide as: "SLIDE [N]: [TITLE]\n[Body text]\n[Visual]"
-- Educational, structured, save-worthy content
+- Educational, structured, save-worthy content.
 """,
     "csr_story": """
-CSR impact story for LinkedIn:
-- Format: STAR (Situation → Task → Action → Result)
-- Include specific numbers and impact metrics (lives impacted, villages covered, etc.)
-- Reference SDG alignment (e.g., "contributing to SDG 6")
-- Beneficiary-centered narrative (real human impact, not corporate speak)
-- Length: 200-350 words
-- Professional, trustworthy, evidence-based tone
-- End with forward-looking statement and CTA
+CSR impact story — narrative format:
+- Start with a beneficiary story or a striking impact statistic (the human face of the work).
+- Middle: the challenge faced and the solution your organisation implemented.
+- End: measurable results and a forward-looking call to action.
+- Include specific numbers and impact metrics (lives impacted, villages covered, etc.).
+- Reference SDG alignment where relevant (e.g., "contributing to SDG 6").
+- Length: 200-350 words. Professional, trustworthy, evidence-based tone.
 """,
     "founder_post": """
-Founder thought leadership post:
-- Personal voice, first person ("I", "we" — choose one and be consistent)
-- Share a unique insight, lesson learned, or behind-the-scenes story
-- Vulnerability + expertise combination (show the human behind the mission)
-- Specific story with a universal lesson
-- Length: 150-250 words
-- Authentic, thoughtful, visionary tone
-- End with a question to spark conversation
+Founder thought leadership post — personal, authentic, first-person:
+- Start with a personal story or a lesson learned (not a corporate announcement).
+- Middle: the insight, challenge, or behind-the-scenes reality.
+- End: what you learned from it, and a question for the community to spark conversation.
+- Use "I" (or "we" if team-focused) consistently throughout.
+- Vulnerability + expertise: show the human behind the mission.
+- Length: 150-250 words. Authentic, thoughtful, visionary tone.
 """,
 }
 

@@ -249,3 +249,9 @@ INSERT INTO festivals (name, date, category, relevant_sectors, suggested_hashtag
 ('International Day of the Girl', '2026-10-11', 'un_day',        '["menstrual_hygiene","csr"]',             '["#DayOfTheGirl","#GirlPower","#EqualRights"]',                             'IN'),
 ('World Health Day',              '2026-04-07', 'un_day',        '["wash","sanitation","menstrual_hygiene"]','["#WorldHealthDay","#HealthForAll","#WHO"]',                               'IN'),
 ('CSR Day India',                 '2026-02-14', 'national_day',  '["csr"]',                                 '["#CSRDay","#CorporateResponsibility","#SocialImpact"]',                    'IN');
+
+-- ── Composite performance indexes ─────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_content_gen_org_created ON content_generations(organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_content_gen_org_saved ON content_generations(organization_id, is_saved) WHERE is_saved = TRUE;
+CREATE INDEX IF NOT EXISTS idx_campaigns_org_status ON campaigns(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_schedule_posts_time ON campaign_posts(scheduled_at) WHERE scheduled_at IS NOT NULL AND status = 'scheduled';

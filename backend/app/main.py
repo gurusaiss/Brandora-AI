@@ -73,10 +73,20 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Sentry initialized")
 
+    # APScheduler — runs post publisher inside this process
+    from app.core.scheduler import scheduler, init_scheduler
+    init_scheduler()
+    scheduler.start()
+    logger.info("APScheduler started — post publisher active every 5 min")
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down Brandora AI API")
+    from app.core.scheduler import scheduler
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+    logger.info("APScheduler stopped")
     from app.core.database import engine
     await engine.dispose()
 

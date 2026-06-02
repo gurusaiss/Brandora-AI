@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const {
     data: analyticsData,
     isLoading: analyticsLoading,
+    error: analyticsError,
   } = useQuery<AnalyticsOverview>({
     queryKey: ['analytics', 'overview'],
     queryFn: async () => {
@@ -56,6 +57,7 @@ export default function DashboardPage() {
     },
     staleTime: 60000,
     retry: false,
+    enabled: !!(user && organization),
   })
 
   const { data: campaignsData } = useQuery<{ items: Campaign[] }>({
@@ -66,6 +68,7 @@ export default function DashboardPage() {
     },
     staleTime: 60000,
     retry: false,
+    enabled: !!(user && organization),
   })
 
   const { data: historyData, isLoading: historyLoading } = useQuery<
@@ -78,13 +81,13 @@ export default function DashboardPage() {
     },
     staleTime: 30000,
     retry: false,
+    enabled: !!(user && organization),
   })
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const firstName = user?.full_name?.split(' ')[0] || 'there'
 
-  const allCampaigns: Campaign[] = campaignsData?.items ?? []
-  const activeCampaigns = allCampaigns.filter((c) => c.status === 'active')
+  const activeCampaigns = campaignsData?.items?.filter((c) => c.status === 'active') ?? []
 
   const totalGenerations = analyticsData?.total_generations ?? 0
   const avgQualityScore = analyticsData?.avg_quality_score
@@ -101,9 +104,10 @@ export default function DashboardPage() {
     organization?.subscription_tier ??
     'free'
 
-  const usagePct =
-    generationsLimit > 0
-      ? Math.min(Math.round((generationsUsed / generationsLimit) * 100), 100)
+  const usagePct = analyticsData?.generations_limit
+    ? Math.min(100, Math.round(((analyticsData.generations_used ?? 0) / analyticsData.generations_limit) * 100))
+    : generationsLimit > 0
+      ? Math.min(100, Math.round((generationsUsed / generationsLimit) * 100))
       : 0
 
   const tierBadge = getSubscriptionBadge(subscriptionTier)
@@ -132,6 +136,14 @@ export default function DashboardPage() {
           Generate Content
         </button>
       </div>
+
+      {/* 1b. Analytics error banner */}
+      {analyticsError && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-destructive/10 border border-destructive/30 text-destructive rounded-xl text-sm">
+          <span className="font-medium">Could not load analytics.</span>
+          <span className="text-destructive/70">Data shown may be incomplete.</span>
+        </div>
+      )}
 
       {/* 2. Metrics row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

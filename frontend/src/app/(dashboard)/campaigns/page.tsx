@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Target, Calendar, Pencil, Trash2, Loader2, X, Check } from 'lucide-react'
+import { Plus, Target, Calendar, Pencil, Trash2, Loader2, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { campaignApi } from '@/lib/api'
 import { EmptyState } from '@/components/shared/empty-state'
+import { Modal } from '@/components/shared/modal'
+import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { cn, formatDate, getPlatformIcon, getPlatformLabel } from '@/lib/utils'
 import type { Campaign, Platform } from '@/types'
 
@@ -226,26 +228,17 @@ function CampaignFormFields({
 
 function CampaignCard({
   campaign,
-  deleteConfirmId,
   onEdit,
   onDeleteRequest,
-  onDeleteConfirm,
-  onDeleteCancel,
-  isDeleting,
 }: {
   campaign: Campaign
-  deleteConfirmId: string | null
   onEdit: (c: Campaign) => void
   onDeleteRequest: (id: string) => void
-  onDeleteConfirm: (id: string) => void
-  onDeleteCancel: () => void
-  isDeleting: boolean
 }) {
   const progressPct =
     campaign.total_posts > 0
       ? Math.round((campaign.published_posts / campaign.total_posts) * 100)
       : 0
-  const isConfirming = deleteConfirmId === campaign.id
 
   return (
     <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -316,153 +309,24 @@ function CampaignCard({
         </div>
       </div>
 
-      {/* Actions / Delete confirm */}
-      {isConfirming ? (
-        <div className="flex items-center gap-2 pt-1">
-          <span className="text-xs text-destructive font-medium flex-1">
-            Delete this campaign?
-          </span>
-          <button
-            onClick={() => onDeleteConfirm(campaign.id)}
-            disabled={isDeleting}
-            className="h-7 px-3 text-xs font-semibold bg-destructive text-destructive-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1"
-          >
-            {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            Delete
-          </button>
-          <button
-            onClick={onDeleteCancel}
-            className="h-7 px-3 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <div className="flex items-center justify-end gap-1 pt-1">
-          <button
-            onClick={() => onEdit(campaign)}
-            className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Edit campaign"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => onDeleteRequest(campaign.id)}
-            className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-destructive"
-            title="Delete campaign"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-1 pt-1">
+        <button
+          onClick={() => onEdit(campaign)}
+          className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          title="Edit campaign"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onDeleteRequest(campaign.id)}
+          className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-destructive"
+          title="Delete campaign"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
-  )
-}
-
-// ─── Modals ───────────────────────────────────────────────────────────────────
-
-function ModalShell({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 sm:inset-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-lg bg-card border border-border rounded-2xl shadow-xl z-50 flex flex-col max-h-[90vh]">
-        {/* Modal header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
-          <h3 className="font-semibold text-foreground text-lg">{title}</h3>
-          <button
-            onClick={onClose}
-            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-muted transition-colors text-muted-foreground"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </>
-  )
-}
-
-function CreateModal({
-  onClose,
-  form,
-  setForm,
-  onSubmit,
-  isPending,
-}: {
-  onClose: () => void
-  form: CampaignForm
-  setForm: React.Dispatch<React.SetStateAction<CampaignForm>>
-  onSubmit: () => void
-  isPending: boolean
-}) {
-  return (
-    <ModalShell title="New Campaign" onClose={onClose}>
-      <div className="overflow-y-auto px-6 py-4 flex-1">
-        <CampaignFormFields form={form} setForm={setForm} />
-      </div>
-      <div className="flex gap-3 px-6 py-4 border-t border-border flex-shrink-0">
-        <button
-          onClick={onClose}
-          className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={!form.name.trim() || isPending}
-          className="flex-1 h-10 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-          Create Campaign
-        </button>
-      </div>
-    </ModalShell>
-  )
-}
-
-function EditModal({
-  onClose,
-  form,
-  setForm,
-  onSubmit,
-  isPending,
-}: {
-  onClose: () => void
-  form: CampaignForm
-  setForm: React.Dispatch<React.SetStateAction<CampaignForm>>
-  onSubmit: () => void
-  isPending: boolean
-}) {
-  return (
-    <ModalShell title="Edit Campaign" onClose={onClose}>
-      <div className="overflow-y-auto px-6 py-4 flex-1">
-        <CampaignFormFields form={form} setForm={setForm} />
-      </div>
-      <div className="flex gap-3 px-6 py-4 border-t border-border flex-shrink-0">
-        <button
-          onClick={onClose}
-          className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={!form.name.trim() || isPending}
-          className="flex-1 h-10 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-          Save Changes
-        </button>
-      </div>
-    </ModalShell>
   )
 }
 
@@ -547,12 +411,22 @@ export default function CampaignsPage() {
   // ── Delete mutation ───────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: (id: string) => campaignApi.delete(id),
+    onMutate: async (deletedId: string) => {
+      await queryClient.cancelQueries({ queryKey: ['campaigns'] })
+      const previous = queryClient.getQueryData(['campaigns'])
+      queryClient.setQueryData(['campaigns'], (old: any) => ({
+        ...old,
+        items: (old?.items ?? []).filter((c: any) => c.id !== deletedId),
+      }))
+      return { previous }
+    },
     onSuccess: () => {
       setDeleteConfirmId(null)
       queryClient.invalidateQueries({ queryKey: ['campaigns'] })
       toast.success('Campaign deleted')
     },
-    onError: () => {
+    onError: (_err: any, _id: any, ctx: any) => {
+      if (ctx?.previous) queryClient.setQueryData(['campaigns'], ctx.previous)
       toast.error('Failed to delete campaign')
     },
   })
@@ -567,6 +441,14 @@ export default function CampaignsPage() {
     setSelectedCampaign(campaign)
     setEditForm(formFromCampaign(campaign))
     setShowEditModal(true)
+  }
+
+  const handleCreate = () => {
+    if (!createForm.name.trim()) {
+      toast.error('Campaign name is required')
+      return
+    }
+    createMutation.mutate()
   }
 
   return (
@@ -641,41 +523,85 @@ export default function CampaignsPage() {
             <CampaignCard
               key={campaign.id}
               campaign={campaign}
-              deleteConfirmId={deleteConfirmId}
               onEdit={openEditModal}
               onDeleteRequest={(id) => setDeleteConfirmId(id)}
-              onDeleteConfirm={(id) => deleteMutation.mutate(id)}
-              onDeleteCancel={() => setDeleteConfirmId(null)}
-              isDeleting={deleteMutation.isPending}
             />
           ))}
         </div>
       )}
 
       {/* Create modal */}
-      {showCreateModal && (
-        <CreateModal
-          onClose={() => setShowCreateModal(false)}
-          form={createForm}
-          setForm={setCreateForm}
-          onSubmit={() => createMutation.mutate()}
-          isPending={createMutation.isPending}
-        />
-      )}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create Campaign"
+        size="md"
+      >
+        <div className="space-y-5">
+          <CampaignFormFields form={createForm} setForm={setCreateForm} />
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreate}
+              disabled={!createForm.name.trim() || createMutation.isPending}
+              className="flex-1 h-10 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create Campaign
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Edit modal */}
-      {showEditModal && selectedCampaign && (
-        <EditModal
-          onClose={() => {
-            setShowEditModal(false)
-            setSelectedCampaign(null)
-          }}
-          form={editForm}
-          setForm={setEditForm}
-          onSubmit={() => updateMutation.mutate()}
-          isPending={updateMutation.isPending}
-        />
-      )}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false)
+          setSelectedCampaign(null)
+        }}
+        title="Edit Campaign"
+        size="md"
+      >
+        <div className="space-y-5">
+          <CampaignFormFields form={editForm} setForm={setEditForm} />
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setShowEditModal(false)
+                setSelectedCampaign(null)
+              }}
+              className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => updateMutation.mutate()}
+              disabled={!editForm.name.trim() || updateMutation.isPending}
+              className="flex-1 h-10 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete confirm */}
+      <ConfirmDialog
+        isOpen={!!deleteConfirmId}
+        onClose={() => setDeleteConfirmId(null)}
+        onConfirm={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
+        title="Delete Campaign"
+        message="This campaign and all associated data will be permanently deleted."
+        confirmLabel="Delete"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   )
 }

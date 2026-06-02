@@ -17,8 +17,13 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  Calendar,
+  FolderPlus,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
 } from 'lucide-react'
-import { contentApi } from '@/lib/api'
+import { contentApi, campaignApi } from '@/lib/api'
 import {
   cn,
   getPlatformLabel,
@@ -26,7 +31,6 @@ import {
   getPlatformIcon,
   truncate,
   formatRelativeTime,
-  getQualityColor,
   getQualityLabel,
 } from '@/lib/utils'
 import type {
@@ -37,6 +41,7 @@ import type {
   ContentGenerateRequest,
   ContentHistoryFilters,
   PaginatedResponse,
+  Campaign,
 } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -90,6 +95,24 @@ function QualityBadge({ score }: { score?: number }) {
   )
 }
 
+// ─── Campaign Status Badge ────────────────────────────────────────────────────
+
+function CampaignStatusBadge({ status }: { status: Campaign['status'] }) {
+  const colorClass =
+    status === 'active'
+      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+      : status === 'draft'
+        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+        : status === 'completed'
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+          : 'bg-muted text-muted-foreground'
+  return (
+    <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full capitalize', colorClass)}>
+      {status}
+    </span>
+  )
+}
+
 // ─── Loading Skeleton ─────────────────────────────────────────────────────────
 
 function HistorySkeleton() {
@@ -117,9 +140,11 @@ function HistorySkeleton() {
 
 function ResultCard({
   result,
+  historyFilters,
   onRegenerate,
 }: {
   result: ContentGeneration
+  historyFilters: ContentHistoryFilters
   onRegenerate: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -127,16 +152,50 @@ function ResultCard({
   const [feedback, setFeedback] = useState<'thumbs_up' | 'thumbs_down' | null>(
     result.feedback ?? null,
   )
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [scheduleDateTime, setScheduleDateTime] = useState('')
+  const [showCampaignSelector, setShowCampaignSelector] = useState(false)
   const queryClient = useQueryClient()
 
-  const saveMutation = useMutation({
-    mutationFn: () => contentApi.save(result.id),
-    onSuccess: () => {
-      setIsSaved((prev) => !prev)
-      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.all })
-      toast.success(isSaved ? 'Removed from saved' : 'Content saved!')
+  // Campaigns query — cached, fetched lazily when selector is opened
+  const campaignsQuery = useQuery({
+    queryKey: ['campaigns'],
+    queryFn: async () => {
+      const response = await campaignApi.list()
+      return response.data as { items?: Campaign[] } | Campaign[]
     },
-    onError: () => toast.error('Failed to save content'),
+    enabled: showCampaignSelector,
+    staleTime: 60_000,
+  })
+
+  const campaigns: Campaign[] = Array.isArray(campaignsQuery.data)
+    ? campaignsQuery.data
+    : (campaignsQuery.data as { items?: Campaign[] })?.items ?? []
+
+  // Save mutation — with optimistic update
+  const saveMutation = useMutation({
+    mutationFn: (id: string) => contentApi.save(id),
+    onMutate: async (id: string) => {
+      if (result?.id === id) setIsSaved((prev) => !prev)
+      const key = CONTENT_KEYS.history(historyFilters)
+      const previous = queryClient.getQueryData(key)
+      queryClient.setQueryData(key, (old: any) => ({
+        ...old,
+        items: (old?.items ?? []).map((item: any) =>
+          item.id === id ? { ...item, is_saved: !item.is_saved } : item,
+        ),
+      }))
+      return { previous, key }
+    },
+    onError: (_err: any, id: any, ctx: any) => {
+      if (ctx?.previous) queryClient.setQueryData(ctx.key, ctx.previous)
+      if (result?.id === id) setIsSaved((prev) => !prev)
+      toast.error('Failed to save content')
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['content', 'history'] }),
+    onSuccess: (_data: any, id: any) => {
+      toast.success(result?.id === id && isSaved ? 'Removed from saved' : 'Content saved!')
+    },
   })
 
   const feedbackMutation = useMutation({
@@ -149,10 +208,39 @@ function ResultCard({
     onError: () => toast.error('Failed to submit feedback'),
   })
 
+  const schedulePostMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { scheduled_at: string; platform?: string } }) =>
+      contentApi.schedulePost(id, data).then((r) => r.data),
+    onSuccess: () => {
+      setShowScheduleForm(false)
+      setScheduleDateTime('')
+      toast.success('Post scheduled!')
+    },
+    onError: () => toast.error('Failed to schedule post'),
+  })
+
+  const useInCampaignMutation = useMutation({
+    mutationFn: ({ id, campaignId }: { id: string; campaignId: string }) =>
+      contentApi.useInCampaign(id, { campaign_id: campaignId }).then((r) => r.data),
+    onSuccess: () => {
+      setShowCampaignSelector(false)
+      toast.success('Added to campaign!')
+    },
+    onError: () => toast.error('Failed to add to campaign'),
+  })
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(result.generated_content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleScheduleSubmit = () => {
+    if (!scheduleDateTime) return
+    schedulePostMutation.mutate({
+      id: result.id,
+      data: { scheduled_at: scheduleDateTime, platform: result.platform },
+    })
   }
 
   return (
@@ -216,7 +304,7 @@ function ResultCard({
       {/* Action row */}
       <div className="flex items-center gap-2 flex-wrap border-t border-border pt-3">
         <button
-          onClick={() => saveMutation.mutate()}
+          onClick={() => saveMutation.mutate(result.id)}
           disabled={saveMutation.isPending}
           className={cn(
             'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
@@ -267,6 +355,134 @@ function ResultCard({
           Regenerate
         </button>
       </div>
+
+      {/* ── Use This Content ──────────────────────────────────────────────────── */}
+      <div className="border-t border-border pt-3 space-y-3">
+        <p className="text-sm font-semibold text-muted-foreground">Use This Content</p>
+
+        <div className="flex flex-wrap gap-2">
+          {/* Schedule Post button */}
+          <button
+            onClick={() => {
+              setShowScheduleForm((prev) => !prev)
+              setShowCampaignSelector(false)
+            }}
+            className={cn(
+              'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
+              showScheduleForm
+                ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border-primary-300 dark:border-primary-700'
+                : 'bg-background text-foreground border-border hover:bg-muted',
+            )}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Schedule Post
+            {showScheduleForm ? (
+              <ChevronUp className="w-3 h-3" />
+            ) : (
+              <ChevronDown className="w-3 h-3" />
+            )}
+          </button>
+
+          {/* Add to Campaign button */}
+          <button
+            onClick={() => {
+              setShowCampaignSelector((prev) => !prev)
+              setShowScheduleForm(false)
+            }}
+            className={cn(
+              'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
+              showCampaignSelector
+                ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border-primary-300 dark:border-primary-700'
+                : 'bg-background text-foreground border-border hover:bg-muted',
+            )}
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            Add to Campaign
+            {showCampaignSelector ? (
+              <ChevronUp className="w-3 h-3" />
+            ) : (
+              <ChevronDown className="w-3 h-3" />
+            )}
+          </button>
+        </div>
+
+        {/* Schedule form */}
+        {showScheduleForm && (
+          <div className="bg-muted/40 border border-border rounded-xl p-4 space-y-3">
+            <p className="text-xs font-medium text-foreground">Schedule date &amp; time</p>
+            <input
+              type="datetime-local"
+              value={scheduleDateTime}
+              onChange={(e) => setScheduleDateTime(e.target.value)}
+              className="w-full h-10 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleScheduleSubmit}
+                disabled={!scheduleDateTime || schedulePostMutation.isPending}
+                className="h-8 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                {schedulePostMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Calendar className="w-3.5 h-3.5" />
+                )}
+                Confirm Schedule
+              </button>
+              <button
+                onClick={() => setShowScheduleForm(false)}
+                className="h-8 px-3 rounded-lg text-xs font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Campaign selector */}
+        {showCampaignSelector && (
+          <div className="bg-muted/40 border border-border rounded-xl p-4 space-y-2">
+            <p className="text-xs font-medium text-foreground">Select a campaign</p>
+            {campaignsQuery.isLoading && (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Loading campaigns...</span>
+              </div>
+            )}
+            {campaignsQuery.isError && (
+              <p className="text-xs text-destructive">Failed to load campaigns.</p>
+            )}
+            {!campaignsQuery.isLoading && campaigns.length === 0 && (
+              <p className="text-xs text-muted-foreground">No campaigns found.</p>
+            )}
+            {campaigns.length > 0 && (
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {campaigns.map((campaign) => (
+                  <button
+                    key={campaign.id}
+                    onClick={() =>
+                      useInCampaignMutation.mutate({ id: result.id, campaignId: campaign.id })
+                    }
+                    disabled={useInCampaignMutation.isPending}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-background hover:bg-muted text-left transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-sm text-foreground font-medium truncate">
+                      {campaign.name}
+                    </span>
+                    <CampaignStatusBadge status={campaign.status} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowCampaignSelector(false)}
+              className="h-7 px-3 rounded-lg text-xs font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -290,7 +506,32 @@ export default function ContentPage() {
     page: 1,
   })
 
+  // History card expanded content state
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
   const queryClient = useQueryClient()
+
+  // Pre-fill generate form from a history item and switch to generate tab
+  const regenerateFromHistory = (item: ContentGeneration) => {
+    setTopic(item.input_topic)
+    setPlatform(item.platform as Platform)
+    if ((item as any).tone) setTone((item as any).tone as Tone)
+    setActiveTab('generate')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Toggle expanded full content for history cards
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
 
   // Generate mutation
   const generateMutation = useMutation({
@@ -310,21 +551,37 @@ export default function ContentPage() {
   const historyQuery = useQuery({
     queryKey: CONTENT_KEYS.history(historyFilters),
     queryFn: async () => {
-      const response = await contentApi.getHistory(historyFilters)
+      const params: ContentHistoryFilters = {
+        ...historyFilters,
+        platform: historyFilters.platform || undefined,
+      }
+      const response = await contentApi.getHistory(params)
       return response.data as PaginatedResponse<ContentGeneration>
     },
     enabled: activeTab === 'history',
     staleTime: 30_000,
   })
 
-  // Delete mutation
+  // Delete mutation — with optimistic update
   const deleteMutation = useMutation({
     mutationFn: (id: string) => contentApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.all })
-      toast.success('Content deleted')
+    onMutate: async (deletedId: string) => {
+      const key = CONTENT_KEYS.history(historyFilters)
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData(key)
+      queryClient.setQueryData(key, (old: any) => ({
+        ...old,
+        items: (old?.items ?? []).filter((item: any) => item.id !== deletedId),
+        total: Math.max(0, (old?.total ?? 1) - 1),
+      }))
+      return { previous, key }
     },
-    onError: () => toast.error('Failed to delete content'),
+    onError: (_err: any, _id: any, ctx: any) => {
+      if (ctx?.previous) queryClient.setQueryData(ctx.key, ctx.previous)
+      toast.error('Failed to delete')
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['content', 'history'] }),
+    onSuccess: () => toast.success('Content deleted'),
   })
 
   const topicTooShort = topic.trim().length < 10
@@ -544,6 +801,7 @@ export default function ContentPage() {
             {!generateMutation.isPending && result && (
               <ResultCard
                 result={result}
+                historyFilters={historyFilters}
                 onRegenerate={handleGenerate}
               />
             )}
@@ -646,6 +904,9 @@ export default function ContentPage() {
                   item={item}
                   onDelete={() => deleteMutation.mutate(item.id)}
                   isDeleting={deleteMutation.isPending}
+                  isExpanded={expandedIds.has(item.id)}
+                  onToggleExpand={() => toggleExpanded(item.id)}
+                  onUseAgain={() => regenerateFromHistory(item)}
                 />
               ))}
             </div>
@@ -695,10 +956,16 @@ function HistoryCard({
   item,
   onDelete,
   isDeleting,
+  isExpanded,
+  onToggleExpand,
+  onUseAgain,
 }: {
   item: ContentGeneration
   onDelete: () => void
   isDeleting: boolean
+  isExpanded: boolean
+  onToggleExpand: () => void
+  onUseAgain: () => void
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -709,58 +976,96 @@ function HistoryCard({
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl p-4 flex items-start justify-between gap-3">
-      <div className="flex items-start gap-3 flex-1 min-w-0">
-        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center text-base flex-shrink-0">
-          {getPlatformIcon(item.platform)}
-        </div>
-        <div className="flex-1 min-w-0 space-y-1">
-          <p className="text-sm font-medium text-foreground truncate">
-            {truncate(item.input_topic, 70)}
-          </p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={cn(
-                'text-xs px-2 py-0.5 rounded-full font-medium',
-                getPlatformColor(item.platform),
-              )}
-            >
-              {getPlatformLabel(item.platform)}
-            </span>
-            <QualityBadge score={item.quality_score} />
-            {item.is_saved && (
-              <span className="text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full border border-primary-200 dark:border-primary-800">
-                Saved
-              </span>
-            )}
-            <span className="text-xs text-muted-foreground">
-              {formatRelativeTime(item.created_at)}
-            </span>
+    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center text-base flex-shrink-0">
+            {getPlatformIcon(item.platform)}
           </div>
+          <div className="flex-1 min-w-0 space-y-1">
+            <p className="text-sm font-medium text-foreground truncate">
+              {truncate(item.input_topic, 70)}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={cn(
+                  'text-xs px-2 py-0.5 rounded-full font-medium',
+                  getPlatformColor(item.platform),
+                )}
+              >
+                {getPlatformLabel(item.platform)}
+              </span>
+              <QualityBadge score={item.quality_score} />
+              {item.is_saved && (
+                <span className="text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full border border-primary-200 dark:border-primary-800">
+                  Saved
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {formatRelativeTime(item.created_at)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Use Again */}
+          <button
+            onClick={onUseAgain}
+            title="Use Again"
+            className="h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-muted flex items-center gap-1 text-xs font-medium text-foreground transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Use Again
+          </button>
+
+          {/* View Full */}
+          <button
+            onClick={onToggleExpand}
+            title={isExpanded ? 'Collapse' : 'View Full'}
+            className="h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-muted flex items-center gap-1 text-xs font-medium text-foreground transition-colors"
+          >
+            {isExpanded ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+            {isExpanded ? 'Collapse' : 'View Full'}
+          </button>
+
+          {/* Copy */}
+          <button
+            onClick={handleCopy}
+            title="Copy content"
+            className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-muted flex items-center justify-center transition-colors"
+          >
+            {copied ? (
+              <Check className="w-3.5 h-3.5 text-green-500" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {/* Delete */}
+          <button
+            onClick={onDelete}
+            disabled={isDeleting}
+            title="Delete"
+            className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:border-red-700 dark:hover:text-red-400 flex items-center justify-center transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <button
-          onClick={handleCopy}
-          title="Copy content"
-          className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-muted flex items-center justify-center transition-colors"
-        >
-          {copied ? (
-            <Check className="w-3.5 h-3.5 text-green-500" />
-          ) : (
-            <Copy className="w-3.5 h-3.5" />
-          )}
-        </button>
-        <button
-          onClick={onDelete}
-          disabled={isDeleting}
-          title="Delete"
-          className="h-8 w-8 rounded-lg border border-border bg-background hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:border-red-700 dark:hover:text-red-400 flex items-center justify-center transition-colors disabled:opacity-50"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {/* Expanded full content */}
+      {isExpanded && (
+        <div className="pt-1">
+          <pre className="w-full whitespace-pre-wrap break-words text-sm text-foreground bg-muted/40 border border-border rounded-xl px-4 py-3 max-h-80 overflow-y-auto font-sans">
+            {item.generated_content}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

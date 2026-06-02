@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { useAuthStore } from '@/store/auth-store'
 import { cn } from '@/lib/utils'
+import { ErrorBoundary } from '@/components/shared/error-boundary'
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -58,7 +59,9 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
           onMenuClick={() => setMobileMenuOpen(true)}
         />
         <main className="p-4 sm:p-6 lg:p-8 min-h-[calc(100vh-4rem)]">
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

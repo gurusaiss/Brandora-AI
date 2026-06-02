@@ -10,10 +10,16 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000, // 1 minute
-            retry: 1,
+            staleTime: 60 * 1000,
+            gcTime: 5 * 60 * 1000,
+            retry: (failureCount: number, error: any) => {
+              if (error?.response?.status === 401) return false
+              if (error?.response?.status === 404) return false
+              return failureCount < 2
+            },
             refetchOnWindowFocus: false,
           },
+          mutations: { retry: 0 },
         },
       }),
   )

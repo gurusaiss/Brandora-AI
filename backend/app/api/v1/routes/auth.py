@@ -4,6 +4,7 @@ Authentication routes: register, login, refresh, logout, me, password reset.
 import logging
 import re
 import uuid
+import uuid as _uuid
 from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
@@ -66,18 +67,9 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     if existing.scalar_one_or_none():
         raise ValidationError("An account with this email already exists.")
 
-    # Create unique slug
-    base_slug = _slugify(payload.organization_name)
-    slug = base_slug
-    counter = 1
-    while True:
-        existing_slug = await db.execute(
-            select(Organization).where(Organization.slug == slug)
-        )
-        if not existing_slug.scalar_one_or_none():
-            break
-        slug = f"{base_slug}-{counter}"
-        counter += 1
+    # Create unique slug (uuid suffix guarantees uniqueness without any DB queries)
+    base_slug = _slugify(payload.organization_name)[:72]
+    slug = base_slug + "-" + str(_uuid.uuid4())[:8]
 
     # Determine generation limit based on tier
     generation_limit = settings.MAX_GENERATIONS_FREE_TIER

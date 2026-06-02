@@ -63,6 +63,10 @@ export const contentApi = {
   feedback: (id: string, feedback: 'thumbs_up' | 'thumbs_down') =>
     api.post(`/content/${id}/feedback`, { feedback }),
   delete: (id: string) => api.delete(`/content/${id}`),
+  schedulePost: (id: string, data: { scheduled_at: string; platform?: string }) =>
+    api.post('/content/' + id + '/schedule', data),
+  useInCampaign: (id: string, data: { campaign_id: string }) =>
+    api.post('/content/' + id + '/use-in-campaign', data),
 }
 
 // ─── Brand Profile ────────────────────────────────────────────────────────────

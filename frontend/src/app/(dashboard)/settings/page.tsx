@@ -61,11 +61,27 @@ export default function SettingsPage() {
 
   const removeMutation = useMutation({
     mutationFn: (memberId: string) => teamApi.remove(memberId),
+    onMutate: async (memberId: string) => {
+      await queryClient.cancelQueries({ queryKey: ['team-members'] })
+      const previous = queryClient.getQueryData(['team-members'])
+      queryClient.setQueryData(['team-members'], (old: any) => {
+        if (!old) return old
+        if (Array.isArray(old)) return old.filter((m: any) => m.id !== memberId)
+        return {
+          ...old,
+          members: (old?.members ?? []).filter((m: any) => m.id !== memberId),
+        }
+      })
+      return { previous }
+    },
     onSuccess: () => {
       toast.success('Member removed')
       queryClient.invalidateQueries({ queryKey: ['team-members'] })
     },
-    onError: () => toast.error('Failed to remove member'),
+    onError: (_err: any, _id: any, ctx: any) => {
+      if (ctx?.previous) queryClient.setQueryData(['team-members'], ctx.previous)
+      toast.error('Failed to remove member')
+    },
   })
 
   const handleSignOut = async () => {
@@ -79,7 +95,7 @@ export default function SettingsPage() {
   }
 
   const usedPct = Math.min(
-    ((organization?.ai_generations_used ?? 0) / (organization?.ai_generations_limit ?? 50)) * 100,
+    ((organization?.ai_generations_used ?? 0) / (organization?.ai_generations_limit ?? 20)) * 100,
     100,
   )
 
@@ -98,7 +114,7 @@ export default function SettingsPage() {
           <div>
             <label className={labelClass}>Full Name</label>
             <input
-              value={user?.full_name || ''}
+              value={user?.full_name ?? 'User'}
               readOnly
               className={`${inputClass} bg-muted cursor-not-allowed`}
             />
@@ -106,7 +122,7 @@ export default function SettingsPage() {
           <div>
             <label className={labelClass}>Email</label>
             <input
-              value={user?.email || ''}
+              value={user?.email ?? ''}
               readOnly
               className={`${inputClass} bg-muted cursor-not-allowed`}
             />
@@ -120,7 +136,7 @@ export default function SettingsPage() {
           <div className="sm:col-span-2">
             <label className={labelClass}>Organization Name</label>
             <input
-              value={organization?.name || ''}
+              value={organization?.name ?? 'Your Organization'}
               readOnly
               className={`${inputClass} bg-muted cursor-not-allowed`}
             />
@@ -145,7 +161,7 @@ export default function SettingsPage() {
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>AI Generations used</span>
               <span>
-                {organization?.ai_generations_used ?? 0} / {organization?.ai_generations_limit ?? 50}
+                {organization?.ai_generations_used ?? 0} / {organization?.ai_generations_limit ?? 20}
               </span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -179,7 +195,7 @@ export default function SettingsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(members || []).map((member) => (
+                {(members ?? []).map((member) => (
                   <tr key={member.id} className="hover:bg-muted/30 transition-colors">
                     <td className="py-3 pr-4 font-medium text-foreground whitespace-nowrap">
                       {member.full_name}
@@ -216,7 +232,7 @@ export default function SettingsPage() {
                     </td>
                   </tr>
                 ))}
-                {!members?.length && (
+                {!(members ?? []).length && (
                   <tr>
                     <td colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
                       No team members yet.
