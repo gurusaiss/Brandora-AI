@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brandora AI — User Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f0f13;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #fff;
+    padding: 32px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+    letter-spacing: -0.3px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 28px;
+  }
+
+  /* ── Grid ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* ── Column ── */
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .col-header {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #555;
+    padding: 0 2px;
+    margin-bottom: 2px;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: #1a1a24;
+    border: 1px solid #2a2a38;
+    border-radius: 12px;
+    padding: 14px 16px;
+    position: relative;
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .card-title .icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  /* ── Step list ── */
+  .steps { display: flex; flex-direction: column; gap: 5px; }
+  .step {
+    font-size: 11px;
+    color: #aaa;
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    line-height: 1.5;
+  }
+  .step .num {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step .text { flex: 1; }
+  .step .text b { color: #ddd; font-weight: 600; }
+
+  /* ── Arrow connector ── */
+  .arrow {
+    font-size: 14px;
+    color: #444;
+    text-align: center;
+    margin: 2px 0;
+    user-select: none;
+  }
+
+  /* ── Badge ── */
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 99px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── Result pill ── */
+  .result {
+    margin-top: 9px;
+    border-top: 1px solid #2a2a38;
+    padding-top: 8px;
+    font-size: 10px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .result .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Color themes per card ── */
+  .purple .icon { background: #3b1f6e; }
+  .purple .num  { background: #6d28d9; color: #fff; }
+  .purple .dot  { background: #7c3aed; }
+  .purple .card-title { color: #c4b5fd; }
+
+  .blue .icon { background: #1e3a5f; }
+  .blue .num  { background: #2563eb; color: #fff; }
+  .blue .dot  { background: #3b82f6; }
+  .blue .card-title { color: #93c5fd; }
+
+  .green .icon { background: #14352a; }
+  .green .num  { background: #059669; color: #fff; }
+  .green .dot  { background: #10b981; }
+  .green .card-title { color: #6ee7b7; }
+
+  .orange .icon { background: #3d2009; }
+  .orange .num  { background: #ea580c; color: #fff; }
+  .orange .dot  { background: #f97316; }
+  .orange .card-title { color: #fdba74; }
+
+  .pink .icon { background: #3d1030; }
+  .pink .num  { background: #db2777; color: #fff; }
+  .pink .dot  { background: #ec4899; }
+  .pink .card-title { color: #f9a8d4; }
+
+  .teal .icon { background: #0d3333; }
+  .teal .num  { background: #0d9488; color: #fff; }
+  .teal .dot  { background: #14b8a6; }
+  .teal .card-title { color: #5eead4; }
+
+  .yellow .icon { background: #3d2d00; }
+  .yellow .num  { background: #d97706; color: #fff; }
+  .yellow .dot  { background: #f59e0b; }
+  .yellow .card-title { color: #fcd34d; }
+
+  /* ── Top flow banner ── */
+  .top-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .flow-node {
+    background: #1a1a24;
+    border: 1px solid #2a2a38;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #ddd;
+    white-space: nowrap;
+  }
+  .flow-arrow {
+    color: #444;
+    font-size: 14px;
+    padding: 0 4px;
+  }
+  .flow-node.active {
+    background: #1f1744;
+    border-color: #6d28d9;
+    color: #c4b5fd;
+  }
+</style>
+</head>
+<body>
+
+<h1>Brandora AI — User Flow</h1>
+<p class="subtitle">Complete journey from registration to publishing</p>
+
+<!-- Master flow -->
+<div class="top-flow">
+  <div class="flow-node active">Register</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node active">Onboarding</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node active">Dashboard</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node active">Generate</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node active">Save / Schedule / Campaign</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node active">Publish & Track</div>
+</div>
+
+<div class="grid">
+
+  <!-- COL 1 -->
+  <div class="col">
+    <div class="col-header">Auth & Setup</div>
+
+    <div class="card purple">
+      <div class="card-title purple">
+        <div class="icon">🔐</div>
+        Register / Sign Up
+      </div>
+      <div class="steps">
+        <div class="step purple">
+          <div class="num purple">1</div>
+          <div class="text">Fill <b>name, email, org name, sector, password</b></div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">2</div>
+          <div class="text">Backend creates <b>Organization + User + Membership</b> in one DB transaction</div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">3</div>
+          <div class="text">Receives <b>JWT access token</b> (30 min) + refresh token (7 days)</div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">4</div>
+          <div class="text">Stored in localStorage → auto-redirects to <b>Onboarding</b></div>
+        </div>
+      </div>
+      <div class="result purple">
+        <div class="dot purple"></div>
+        Free tier: 20 AI generations / month
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card blue">
+      <div class="card-title blue">
+        <div class="icon">🎯</div>
+        Onboarding (3 Steps)
+      </div>
+      <div class="steps">
+        <div class="step blue">
+          <div class="num blue">1</div>
+          <div class="text"><b>Step 1:</b> Org name, sector, website</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">2</div>
+          <div class="text"><b>Step 2:</b> Pick brand tone — Professional / Inspirational / Educational / Conversational</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">3</div>
+          <div class="text"><b>Step 3:</b> Add social handles (optional) or Skip</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">4</div>
+          <div class="text">Saves to <b>Brand Profile</b> → redirects to <b>/content</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card teal">
+      <div class="card-title teal">
+        <div class="icon">🏠</div>
+        Dashboard
+      </div>
+      <div class="steps">
+        <div class="step teal">
+          <div class="num teal">1</div>
+          <div class="text">Loads <b>3 APIs in parallel</b>: Analytics + Campaigns + Recent Content</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">2</div>
+          <div class="text">Shows <b>real metrics</b>: total generated, active campaigns, avg quality, tokens used</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">3</div>
+          <div class="text"><b>AI Usage meter</b> (12/20 used), quick action buttons</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">4</div>
+          <div class="text">Quick actions navigate to <b>Generate / Campaigns / Calendar / Brand</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 2 -->
+  <div class="col">
+    <div class="col-header">Content Creation</div>
+
+    <div class="card green">
+      <div class="card-title green">
+        <div class="icon">✍️</div>
+        Content Generation
+      </div>
+      <div class="steps">
+        <div class="step green">
+          <div class="num green">1</div>
+          <div class="text">Select <b>platform</b>: LinkedIn / Instagram / Twitter / Reel / Carousel / CSR Story / Founder Post</div>
+        </div>
+        <div class="step green">
+          <div class="num green">2</div>
+          <div class="text">Enter <b>topic</b> (min 10 chars), tone, language, optional context</div>
+        </div>
+        <div class="step green">
+          <div class="num green">3</div>
+          <div class="text">Backend builds <b>platform-specific prompt</b> using Brand Profile settings (rule-based, no extra AI cost)</div>
+        </div>
+        <div class="step green">
+          <div class="num green">4</div>
+          <div class="text"><b>Groq AI</b> (llama-3.3-70b, free) generates content → saved to DB → returned</div>
+        </div>
+        <div class="step green">
+          <div class="num green">5</div>
+          <div class="text">Result card: <b>Copy / Save / 👍👎 / Regenerate</b></div>
+        </div>
+      </div>
+      <div class="result green">
+        <div class="dot green"></div>
+        Increments org.ai_generations_used in DB
+      </div>
+    </div>
+
+    <div class="arrow">↓  3 paths from generated content</div>
+
+    <div class="card orange">
+      <div class="card-title orange">
+        <div class="icon">📅</div>
+        Schedule Post directly
+      </div>
+      <div class="steps">
+        <div class="step orange">
+          <div class="num orange">1</div>
+          <div class="text">Click <b>"Schedule Post"</b> on result card</div>
+        </div>
+        <div class="step orange">
+          <div class="num orange">2</div>
+          <div class="text">Pick <b>date + time</b> (datetime picker)</div>
+        </div>
+        <div class="step orange">
+          <div class="num orange">3</div>
+          <div class="text">POST /content/{id}/schedule → creates <b>CampaignPost</b> with status="scheduled"</div>
+        </div>
+        <div class="step orange">
+          <div class="num orange">4</div>
+          <div class="text"><b>APScheduler</b> checks every 5 min → auto-marks "published" at scheduled time</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card pink">
+      <div class="card-title pink">
+        <div class="icon">🎪</div>
+        Add to Campaign
+      </div>
+      <div class="steps">
+        <div class="step pink">
+          <div class="num pink">1</div>
+          <div class="text">Click <b>"Add to Campaign"</b> on result card</div>
+        </div>
+        <div class="step pink">
+          <div class="num pink">2</div>
+          <div class="text">Campaign selector shows existing campaigns (from cache)</div>
+        </div>
+        <div class="step pink">
+          <div class="num pink">3</div>
+          <div class="text">POST /content/{id}/use-in-campaign → links content to campaign</div>
+        </div>
+        <div class="step pink">
+          <div class="num pink">4</div>
+          <div class="text">Content shows in <b>Campaign's post list</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 3 -->
+  <div class="col">
+    <div class="col-header">Management & Tracking</div>
+
+    <div class="card blue">
+      <div class="card-title blue">
+        <div class="icon">🗂️</div>
+        Campaigns CRUD
+      </div>
+      <div class="steps">
+        <div class="step blue">
+          <div class="num blue">1</div>
+          <div class="text"><b>Create</b>: Name + Type + Dates + Platforms → instant optimistic UI → POST /campaigns</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">2</div>
+          <div class="text"><b>Edit</b>: Click ✏️ → pre-filled modal → PATCH /campaigns/{id}</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">3</div>
+          <div class="text"><b>Delete</b>: ConfirmDialog → DELETE → instant removal</div>
+        </div>
+        <div class="step blue">
+          <div class="num blue">4</div>
+          <div class="text">Status filter: <b>All / Draft / Active / Completed</b></div>
+        </div>
+      </div>
+      <div class="result blue">
+        <div class="dot blue"></div>
+        All CRUD operations use optimistic UI — instant feedback
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card teal">
+      <div class="card-title teal">
+        <div class="icon">📆</div>
+        Calendar View
+      </div>
+      <div class="steps">
+        <div class="step teal">
+          <div class="num teal">1</div>
+          <div class="text">Month grid shows <b>🔵 post dots</b> + <b>🌍 festival markers</b> from DB</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">2</div>
+          <div class="text">Click any day → side panel shows that day's scheduled posts</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">3</div>
+          <div class="text"><b>+ Schedule Post</b> → Modal → platform + content + time → POST /schedule</div>
+        </div>
+        <div class="step teal">
+          <div class="num teal">4</div>
+          <div class="text">Edit / Delete any scheduled post inline</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card yellow">
+      <div class="card-title yellow">
+        <div class="icon">📜</div>
+        Content History
+      </div>
+      <div class="steps">
+        <div class="step yellow">
+          <div class="num yellow">1</div>
+          <div class="text">All past generations <b>persist in DB</b> — survive logout/restart</div>
+        </div>
+        <div class="step yellow">
+          <div class="num yellow">2</div>
+          <div class="text">Filter by <b>platform</b> or <b>saved only</b> — GET /content/history</div>
+        </div>
+        <div class="step yellow">
+          <div class="num yellow">3</div>
+          <div class="text"><b>Use Again</b> → pre-fills Generate form with same topic + platform</div>
+        </div>
+        <div class="step yellow">
+          <div class="num yellow">4</div>
+          <div class="text"><b>Expand</b> full content / <b>Delete</b> (instant optimistic removal)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="card purple">
+      <div class="card-title purple">
+        <div class="icon">⚙️</div>
+        Settings & Team
+      </div>
+      <div class="steps">
+        <div class="step purple">
+          <div class="num purple">1</div>
+          <div class="text"><b>Team:</b> Invite by email → creates membership if user is registered</div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">2</div>
+          <div class="text"><b>Roles:</b> Admin / Editor / Viewer — update or remove anytime</div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">3</div>
+          <div class="text"><b>Brand Profile:</b> tone sliders, vocabulary, social handles → shapes every generation</div>
+        </div>
+        <div class="step purple">
+          <div class="num purple">4</div>
+          <div class="text"><b>Sign Out</b> → blacklists token → clears session</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Bottom legend -->
+<div style="max-width:960px;margin:18px auto 0;display:flex;gap:20px;flex-wrap:wrap;justify-content:center;">
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555;">
+    <div style="width:8px;height:8px;border-radius:50%;background:#7c3aed;"></div> Auth
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555;">
+    <div style="width:8px;height:8px;border-radius:50%;background:#059669;"></div> AI Generation (Groq — Free)
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555;">
+    <div style="width:8px;height:8px;border-radius:50%;background:#0d9488;"></div> DB Persistent
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555;">
+    <div style="width:8px;height:8px;border-radius:50%;background:#f97316;"></div> Scheduled Auto-Publish (APScheduler)
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#555;">
+    <div style="width:8px;height:8px;border-radius:50%;background:#3b82f6;"></div> Optimistic UI (instant feedback)
+  </div>
+</div>
+
+</body>
+</html>
