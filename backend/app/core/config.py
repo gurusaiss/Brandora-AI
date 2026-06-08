@@ -78,8 +78,10 @@ class Settings(BaseSettings):
     # ── Meta (Facebook + Instagram) ───────────────────────────────────────────
     META_APP_ID: str = ""
     META_APP_SECRET: str = ""
-    # Callback must match exactly what is set in Meta App → Facebook Login → Valid OAuth Redirect URIs
+    # Page/IG connect callback (social-accounts flow)
     META_REDIRECT_URI: str = "https://brandora-backend-dntm.onrender.com/api/v1/social-accounts/callback/meta"
+    # Facebook Login callback (user auth flow — sign in / sign up)
+    FACEBOOK_AUTH_REDIRECT_URI: str = "https://brandora-backend-dntm.onrender.com/api/v1/auth/facebook/callback"
 
     # ── Rate Limits / Tier Caps ───────────────────────────────────────────────
     MAX_GENERATIONS_FREE_TIER: int = 20

@@ -47,6 +47,8 @@ export const authApi = {
   me: () => api.get('/auth/me'),
   forgotPassword: (data: { email: string }) => api.post('/auth/forgot-password', data),
   resetPassword: (data: { token: string; new_password: string }) => api.post('/auth/reset-password', data),
+  /** Step 1 of Facebook OAuth — returns { auth_url } to redirect the user to */
+  facebookLoginUrl: () => api.get('/auth/facebook'),
 }
 
 // ─── Content ─────────────────────────────────────────────────────────────────

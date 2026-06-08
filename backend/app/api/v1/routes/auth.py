@@ -1,14 +1,20 @@
 """
-Authentication routes: register, login, refresh, logout, me, password reset.
+Authentication routes: register, login, refresh, logout, me, password reset,
+and Facebook OAuth (sign-in / sign-up via Meta).
 """
 import logging
 import re
+import secrets
 import uuid
 import uuid as _uuid
 from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlencode
 
+import httpx
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -228,8 +234,166 @@ async def reset_password(
     payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
 ):
     """Reset password using a valid reset token."""
-    # TODO: look up token in Redis, find user_id, update hashed_password
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Password reset via token not yet implemented — use Supabase Auth.",
+    )
+
+
+# ── Facebook OAuth (Sign in / Sign up) ───────────────────────────────────────
+
+@router.get("/facebook")
+async def facebook_login_start():
+    """
+    Step 1 — Return the Facebook OAuth URL.
+    Frontend redirects the user to auth_url.
+    Scopes: email + public_profile only (no page permissions here).
+    """
+    if not settings.META_APP_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Facebook login is not configured on this server.",
+        )
+    state = secrets.token_urlsafe(16)
+    params = urlencode({
+        "client_id":     settings.META_APP_ID,
+        "redirect_uri":  settings.FACEBOOK_AUTH_REDIRECT_URI,
+        "scope":         "email,public_profile",
+        "response_type": "code",
+        "state":         state,
+    })
+    return {
+        "auth_url": f"https://www.facebook.com/v19.0/dialog/oauth?{params}",
+        "state": state,
+    }
+
+
+@router.get("/facebook/callback")
+async def facebook_login_callback(
+    code:         Optional[str] = Query(None),
+    state:        Optional[str] = Query(None),
+    error:        Optional[str] = Query(None),
+    error_reason: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 2 — Meta calls this after the user authorises.
+    • Exchanges code for access token
+    • Fetches email + name from Graph API /me
+    • Finds existing Brandora user by email → logs them in
+    • Or creates a new user + organisation automatically → sends to onboarding
+    • Redirects browser to FRONTEND_URL/auth/callback?access_token=…&refresh_token=…&is_new=0/1
+    """
+    frontend = settings.FRONTEND_URL.rstrip("/")
+
+    if error or not code:
+        return RedirectResponse(
+            url=f"{frontend}/login?fb_error={error or 'cancelled'}",
+            status_code=302,
+        )
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        # Exchange code → user access token
+        token_res = await client.get(
+            "https://graph.facebook.com/v19.0/oauth/access_token",
+            params={
+                "client_id":     settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
+                "redirect_uri":  settings.FACEBOOK_AUTH_REDIRECT_URI,
+                "code":          code,
+            },
+        )
+        if token_res.status_code != 200:
+            logger.error("Facebook token exchange failed", body=token_res.text)
+            return RedirectResponse(
+                url=f"{frontend}/login?fb_error=token_failed", status_code=302
+            )
+        fb_access_token = token_res.json().get("access_token")
+
+        # Get email + name from Graph API
+        me_res = await client.get(
+            "https://graph.facebook.com/v19.0/me",
+            params={"fields": "id,name,email", "access_token": fb_access_token},
+        )
+        fb_data = me_res.json()
+
+    fb_email = fb_data.get("email")
+    fb_name  = fb_data.get("name", "Facebook User")
+
+    if not fb_email:
+        # User has no email on Facebook (rare) or denied email permission
+        return RedirectResponse(
+            url=f"{frontend}/login?fb_error=no_email", status_code=302
+        )
+
+    # ── Find or create user ──────────────────────────────────────────────────
+    existing = await db.execute(select(User).where(User.email == fb_email))
+    user: User | None = existing.scalar_one_or_none()
+    is_new = user is None
+
+    if user:
+        # Existing account → log in
+        user.last_login_at = datetime.now(timezone.utc)
+        membership_r = await db.execute(
+            select(UserOrganizationMembership)
+            .where(
+                UserOrganizationMembership.user_id == user.id,
+                UserOrganizationMembership.is_active == True,
+            )
+            .limit(1)
+        )
+        membership = membership_r.scalar_one_or_none()
+        if not membership:
+            return RedirectResponse(url=f"{frontend}/login?fb_error=no_org", status_code=302)
+        org_r = await db.execute(
+            select(Organization).where(Organization.id == membership.organization_id)
+        )
+        org: Organization = org_r.scalar_one()
+
+    else:
+        # New user → create account + organisation
+        random_pw = secrets.token_urlsafe(32)   # Never used; they'll always log in via FB
+        base_slug = _slugify(fb_name)[:72]
+        slug = base_slug + "-" + str(_uuid.uuid4())[:8]
+
+        org = Organization(
+            id=uuid.uuid4(),
+            name=f"{fb_name}'s Organization",
+            slug=slug,
+            sector="other",
+            subscription_tier="free",
+            ai_generations_limit=settings.MAX_GENERATIONS_FREE_TIER,
+        )
+        db.add(org)
+
+        user = User(
+            id=uuid.uuid4(),
+            email=fb_email,
+            hashed_password=get_password_hash(random_pw),
+            full_name=fb_name,
+            is_active=True,
+            is_verified=True,   # Facebook has verified the email
+        )
+        db.add(user)
+
+        db.add(UserOrganizationMembership(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            organization_id=org.id,
+            role="admin",
+            is_active=True,
+        ))
+        await db.flush()
+
+    # ── Build JWT tokens ─────────────────────────────────────────────────────
+    token_data = _build_token_response(user, org)
+    redirect_params = urlencode({
+        "access_token":  token_data.access_token,
+        "refresh_token": token_data.refresh_token,
+        "is_new":        "1" if is_new else "0",
+    })
+    logger.info("Facebook login success", user_id=str(user.id), is_new=is_new)
+    return RedirectResponse(
+        url=f"{frontend}/auth/callback?{redirect_params}",
+        status_code=302,
     )
