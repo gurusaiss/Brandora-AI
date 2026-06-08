@@ -108,18 +108,10 @@ function ConnectedAccounts() {
   })
 
   const handleConnectMeta = async () => {
-    if (!process.env.NEXT_PUBLIC_META_APP_ID && !window.__META_CONFIGURED__) {
-      // Show hint that Meta isn't configured yet
-      toast(
-        'Meta integration requires META_APP_ID to be set on the server. Contact your admin.',
-        { duration: 5000 },
-      )
-    }
     setConnectingMeta(true)
     try {
       const res = await socialAccountsApi.connectMeta()
       const { auth_url } = res.data
-      // Open in same tab — Meta callback will redirect back to /settings
       window.location.href = auth_url
     } catch (err: any) {
       toast.error(
