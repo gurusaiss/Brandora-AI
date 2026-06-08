@@ -54,15 +54,15 @@ router = APIRouter()
 META_GRAPH = "https://graph.facebook.com/v19.0"
 META_OAUTH  = "https://www.facebook.com/v19.0/dialog/oauth"
 
-# Permissions the app requests
+# Permissions the app requests.
+# Kept to the minimum needed for posting — fewer scopes = less App Review friction.
+# instagram_manage_insights + business_management require extra App Review; not needed here.
 META_SCOPES = ",".join([
     "pages_manage_posts",
     "pages_read_engagement",
     "pages_show_list",
     "instagram_basic",
     "instagram_content_publish",
-    "instagram_manage_insights",
-    "business_management",
 ])
 
 
