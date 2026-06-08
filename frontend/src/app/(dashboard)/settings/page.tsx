@@ -18,7 +18,7 @@ import {
   XCircle,
   ExternalLink,
 } from 'lucide-react'
-import { teamApi, authApi, socialAccountsApi, toArray } from '@/lib/api'
+import { teamApi, authApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 import type { TeamMember } from '@/types'
 
@@ -114,9 +114,7 @@ function ConnectedAccounts() {
       const { auth_url } = res.data
       window.location.href = auth_url
     } catch (err: any) {
-      toast.error(
-        err?.response?.data?.detail ?? 'Failed to start Meta OAuth. Check server configuration.',
-      )
+      toast.error(getApiError(err, 'Failed to start Meta OAuth. Check server configuration.'))
       setConnectingMeta(false)
     }
   }

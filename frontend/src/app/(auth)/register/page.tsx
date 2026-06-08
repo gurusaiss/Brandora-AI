@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Sparkles, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useRegister } from '@/hooks/use-auth'
-import { authApi } from '@/lib/api'
+import { authApi, getApiError } from '@/lib/api'
 import { getSectorOptions } from '@/lib/utils'
 
 const registerSchema = z
@@ -92,9 +92,7 @@ export default function RegisterPage() {
       const res = await authApi.facebookLoginUrl()
       window.location.href = res.data.auth_url
     } catch (err: any) {
-      toast.error(
-        err?.response?.data?.detail ?? 'Facebook sign-up unavailable. Use the form below.',
-      )
+      toast.error(getApiError(err, 'Facebook sign-up unavailable. Use the form below.'))
       setFbLoading(false)
     }
   }

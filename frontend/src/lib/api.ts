@@ -113,6 +113,20 @@ api.interceptors.response.use(
   },
 )
 
+// ── Error message extractor ───────────────────────────────────────────────────
+// Backend always returns { error: "CODE", message: "Human text" }
+// NOT { detail: "..." } — that's FastAPI's default format which we override.
+export function getApiError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const data = (err as any)?.response?.data
+  return (
+    data?.message ||    // our custom format  ← check first
+    data?.detail ||     // FastAPI default (just in case)
+    data?.error ||      // fallback code
+    (err as any)?.message ||  // axios network error
+    fallback
+  )
+}
+
 // ── Safe array coercion ───────────────────────────────────────────────────────
 // Many backend list endpoints may return { items: [...] } or { data: [...] }
 // instead of a plain array.  Use this everywhere before calling .map().

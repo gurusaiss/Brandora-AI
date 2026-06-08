@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useLogin } from '@/hooks/use-auth'
-import { authApi } from '@/lib/api'
+import { authApi, getApiError } from '@/lib/api'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -29,9 +29,7 @@ export default function LoginPage() {
       const res = await authApi.facebookLoginUrl()
       window.location.href = res.data.auth_url
     } catch (err: any) {
-      toast.error(
-        err?.response?.data?.detail ?? 'Facebook login unavailable. Try email/password.',
-      )
+      toast.error(getApiError(err, 'Facebook login unavailable. Try email/password.'))
       setFbLoading(false)
     }
   }

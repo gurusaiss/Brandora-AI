@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import { authApi } from '@/lib/api'
+import { authApi, getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 import type {
   LoginRequest,
@@ -35,13 +35,9 @@ export function useLogin() {
       toast.success(`Welcome back, ${data.user.full_name.split(' ')[0]}!`)
       router.push('/content')
     },
-    onError: (error: { response?: { data?: { detail?: string; message?: string } } }) => {
+    onError: (error: unknown) => {
       setLoading(false)
-      const message =
-        error?.response?.data?.message ||
-        error?.response?.data?.detail ||
-        'Invalid email or password'
-      toast.error(message)
+      toast.error(getApiError(error, 'Invalid email or password'))
     },
   })
 }
@@ -69,13 +65,9 @@ export function useRegister() {
       toast.success("Account created! Let's set up your brand.")
       router.push('/onboarding')
     },
-    onError: (error: { response?: { data?: { detail?: string; message?: string } } }) => {
+    onError: (error: unknown) => {
       setLoading(false)
-      const message =
-        error?.response?.data?.message ||
-        error?.response?.data?.detail ||
-        'Registration failed. Please try again.'
-      toast.error(message)
+      toast.error(getApiError(error, 'Registration failed. Please try again.'))
     },
   })
 }
