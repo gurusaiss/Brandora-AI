@@ -1,5 +1,8 @@
 'use client'
 
+// Never statically prerender — this page reads URL search params at runtime
+export const dynamic = 'force-dynamic'
+
 /**
  * /auth/callback
  *
