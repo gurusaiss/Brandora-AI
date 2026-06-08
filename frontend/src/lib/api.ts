@@ -258,6 +258,8 @@ export const socialAccountsApi = {
   connectMeta: () => api.get('/social-accounts/connect/meta'),
   connectLinkedIn: () => api.get('/social-accounts/connect/linkedin'),
   connectTwitter: () => api.get('/social-accounts/connect/twitter'),
+  connectMetaManual: (pageAccessToken: string) =>
+    api.post('/social-accounts/connect/meta/manual', { page_access_token: pageAccessToken }),
   disconnect: (accountId: string) =>
     api.delete(`/social-accounts/${accountId}`),
   metaPost: (data: {

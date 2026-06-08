@@ -121,6 +121,10 @@ class SocialAccountResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ManualMetaConnectRequest(BaseModel):
+    page_access_token: str  # Long-lived Page Access Token from Graph API Explorer
+
+
 class MetaPostRequest(BaseModel):
     account_id: uuid.UUID          # SocialAccount.id in our DB
     message: str                   # caption / post text
@@ -357,6 +361,143 @@ async def meta_oauth_callback(
         url=f"{frontend_base}/settings?meta_connected=true&count={len(saved)}",
         status_code=302,
     )
+
+
+# ─────────────────────────── Meta Manual Connect ─────────────────────────────
+
+@router.post("/connect/meta/manual", response_model=List[SocialAccountResponse])
+async def connect_meta_manual(
+    body: ManualMetaConnectRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Connect a Facebook Page (+ linked Instagram Business, if any) using a
+    manually-generated Page Access Token from Graph API Explorer.
+
+    No App Review required — works immediately in Development mode for any
+    admin of the Facebook Page.
+
+    How to get a Page Access Token:
+      1. Go to https://developers.facebook.com/tools/explorer
+      2. Select your Meta app in the top-right dropdown
+      3. Click "Generate Access Token" → tick pages_manage_posts,
+         instagram_basic, instagram_content_publish → "Generate Token"
+      4. In the query field run: GET me/accounts
+      5. Copy the access_token for your Page from the response
+      6. Paste it here
+    """
+    org = await _get_user_org(current_user, db)
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Validate token + pull page name / linked IG account in one call
+        page_res = await client.get(
+            f"{META_GRAPH}/me",
+            params={
+                "access_token": body.page_access_token,
+                "fields": "id,name,instagram_business_account",
+            },
+        )
+
+    if page_res.status_code != 200:
+        err_msg = page_res.json().get("error", {}).get("message", "Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid Page Access Token: {err_msg}",
+        )
+
+    page_data = page_res.json()
+    page_id   = page_data.get("id")
+    page_name = page_data.get("name", "Facebook Page")
+
+    if not page_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not read Page ID from token. Make sure you copied the Page token, not the User token.",
+        )
+
+    # Page tokens are effectively permanent (only invalidated by password change)
+    token_expires_at = datetime.now(timezone.utc) + timedelta(days=3650)  # 10 years
+
+    saved_accounts: list[SocialAccount] = []
+
+    # ── Upsert Facebook Page ───────────────────────────────────────────────────
+    existing_fb = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.organization_id == org.id,
+            SocialAccount.platform        == "facebook_page",
+            SocialAccount.account_id      == page_id,
+        )
+    )
+    fb_account = existing_fb.scalar_one_or_none()
+    if fb_account:
+        fb_account.access_token     = body.page_access_token
+        fb_account.account_name     = page_name
+        fb_account.token_expires_at = token_expires_at
+        fb_account.is_active        = True
+    else:
+        fb_account = SocialAccount(
+            organization_id  = org.id,
+            platform         = "facebook_page",
+            account_id       = page_id,
+            account_name     = page_name,
+            access_token     = body.page_access_token,
+            token_expires_at = token_expires_at,
+            is_active        = True,
+        )
+        db.add(fb_account)
+    saved_accounts.append(fb_account)
+
+    # ── Linked Instagram Business Account (if any) ─────────────────────────────
+    ig_info = page_data.get("instagram_business_account")
+    if ig_info:
+        ig_id = ig_info.get("id")
+        async with httpx.AsyncClient(timeout=10) as igc:
+            ig_res = await igc.get(
+                f"{META_GRAPH}/{ig_id}",
+                params={"fields": "id,username", "access_token": body.page_access_token},
+            )
+        ig_username = (
+            ig_res.json().get("username", "Instagram")
+            if ig_res.status_code == 200
+            else "Instagram"
+        )
+
+        existing_ig = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.organization_id == org.id,
+                SocialAccount.platform        == "instagram",
+                SocialAccount.account_id      == ig_id,
+            )
+        )
+        ig_account = existing_ig.scalar_one_or_none()
+        if ig_account:
+            ig_account.access_token     = body.page_access_token
+            ig_account.account_name     = ig_username
+            ig_account.token_expires_at = token_expires_at
+            ig_account.is_active        = True
+        else:
+            ig_account = SocialAccount(
+                organization_id  = org.id,
+                platform         = "instagram",
+                account_id       = ig_id,
+                account_name     = ig_username,
+                access_token     = body.page_access_token,
+                token_expires_at = token_expires_at,
+                is_active        = True,
+            )
+            db.add(ig_account)
+        saved_accounts.append(ig_account)
+
+    await db.flush()
+    logger.info(
+        "Meta accounts connected (manual token)",
+        org_id=str(org.id),
+        page=page_name,
+        has_instagram=ig_info is not None,
+    )
+
+    return [SocialAccountResponse.model_validate(a) for a in saved_accounts]
 
 
 # ─────────────────────────── Meta Posting ────────────────────────────────────

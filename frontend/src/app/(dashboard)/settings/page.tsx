@@ -17,6 +17,9 @@ import {
   CheckCircle2,
   XCircle,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Key,
 } from 'lucide-react'
 import { teamApi, authApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
@@ -72,7 +75,10 @@ function PlatformBadge({ platform }: { platform: string }) {
 // ── Connected Accounts section ───────────────────────────────────────────────
 function ConnectedAccounts() {
   const queryClient = useQueryClient()
-  const [connectingMeta, setConnectingMeta] = useState(false)
+  const [connectingMeta, setConnectingMeta]   = useState(false)
+  const [showManual, setShowManual]           = useState(false)
+  const [manualToken, setManualToken]         = useState('')
+  const [manualLoading, setManualLoading]     = useState(false)
 
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['social-accounts'],
@@ -111,67 +117,132 @@ function ConnectedAccounts() {
     setConnectingMeta(true)
     try {
       const res = await socialAccountsApi.connectMeta()
-      const { auth_url } = res.data
-      window.location.href = auth_url
+      window.location.href = res.data.auth_url
     } catch (err: any) {
-      toast.error(getApiError(err, 'Failed to start Meta OAuth. Check server configuration.'))
+      toast.error(getApiError(err, 'Failed to start Meta OAuth.'))
       setConnectingMeta(false)
     }
   }
 
-  const metaAccounts = (accounts ?? []).filter(
+  const handleManualConnect = async () => {
+    if (!manualToken.trim()) return
+    setManualLoading(true)
+    try {
+      const res = await socialAccountsApi.connectMetaManual(manualToken.trim())
+      const connected = toArray<{ account_name: string | null; platform: string }>(res.data)
+      const names = connected.map((a) => a.account_name || a.platform).join(' + ')
+      toast.success(`Connected: ${names}`)
+      setManualToken('')
+      setShowManual(false)
+      queryClient.invalidateQueries({ queryKey: ['social-accounts'] })
+    } catch (err: any) {
+      toast.error(getApiError(err, 'Invalid token. Make sure you copied the Page Access Token.'))
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
+  const metaAccounts    = (accounts ?? []).filter(
     (a) => a.platform === 'facebook_page' || a.platform === 'instagram',
   )
   const hasMetaConnected = metaAccounts.length > 0
 
   return (
     <div className="space-y-5">
-      {/* Meta connect card */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-muted/30">
-        <div className="flex items-center gap-3">
-          {/* Meta "M" logo */}
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg select-none">
-            M
+      {/* ── Meta connect card ────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-muted/30 overflow-hidden">
+        {/* Header row */}
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg select-none">
+              M
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Meta (Facebook + Instagram)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {hasMetaConnected
+                  ? `${metaAccounts.length} account${metaAccounts.length > 1 ? 's' : ''} connected`
+                  : 'Connect to publish directly to your Page and Instagram'}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Meta (Facebook + Instagram)</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {hasMetaConnected
-                ? `${metaAccounts.length} account${metaAccounts.length > 1 ? 's' : ''} connected`
-                : 'Connect to publish directly to your Page and Instagram'}
-            </p>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {hasMetaConnected && (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                <span className="text-xs font-medium text-green-600 dark:text-green-400 mr-1">Connected</span>
+              </>
+            )}
+            {/* Manual connect toggle */}
+            <button
+              onClick={() => setShowManual((v) => !v)}
+              className="flex items-center gap-1 h-9 px-3 border border-border hover:bg-muted text-sm font-medium text-foreground rounded-xl transition-colors"
+              title="Connect using a Page Access Token"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Paste Token</span>
+              {showManual ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
 
-        {hasMetaConnected ? (
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-green-500" />
-            <span className="text-xs font-medium text-green-600 dark:text-green-400">Connected</span>
-            <button
-              onClick={handleConnectMeta}
-              disabled={connectingMeta}
-              className="ml-2 text-xs text-primary hover:underline disabled:opacity-50"
-            >
-              Re-connect
-            </button>
+        {/* ── Manual Token Form (collapsible) ─────────────────────────── */}
+        {showManual && (
+          <div className="border-t border-border bg-background px-4 pb-4 pt-3 space-y-3">
+            {/* Instructions */}
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 space-y-1.5 text-xs text-blue-800 dark:text-blue-300">
+              <p className="font-semibold">How to get your Page Access Token (2 min):</p>
+              <ol className="list-decimal list-inside space-y-1 leading-relaxed">
+                <li>
+                  Open{' '}
+                  <a
+                    href="https://developers.facebook.com/tools/explorer"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium"
+                  >
+                    Meta Graph API Explorer ↗
+                  </a>
+                </li>
+                <li>Top-right dropdown → select your Meta App</li>
+                <li>Click <strong>"Generate Access Token"</strong> → tick <code>pages_manage_posts</code>, <code>instagram_basic</code>, <code>instagram_content_publish</code></li>
+                <li>In the query box run: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">GET me/accounts</code></li>
+                <li>Copy the <code>access_token</code> for your Facebook Page</li>
+                <li>Paste it below ↓</li>
+              </ol>
+            </div>
+
+            {/* Token input + button */}
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                placeholder="Paste your Page Access Token here…"
+                className="flex-1 h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors font-mono text-xs"
+              />
+              <button
+                onClick={handleManualConnect}
+                disabled={!manualToken.trim() || manualLoading}
+                className="flex items-center gap-1.5 h-10 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
+              >
+                {manualLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                {manualLoading ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              🔒 Token is stored securely on the server. Page Access Tokens don&apos;t expire unless you change your Facebook password.
+            </p>
           </div>
-        ) : (
-          <button
-            onClick={handleConnectMeta}
-            disabled={connectingMeta}
-            className="flex items-center gap-1.5 h-9 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors"
-          >
-            {connectingMeta ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <ExternalLink className="w-4 h-4" />
-            )}
-            {connectingMeta ? 'Redirecting…' : 'Connect'}
-          </button>
         )}
       </div>
 
-      {/* Connected accounts list */}
+      {/* ── Connected accounts list ──────────────────────────────────────── */}
       {isLoading ? (
         <div className="space-y-2">
           {[1, 2].map((i) => (
@@ -180,14 +251,14 @@ function ConnectedAccounts() {
         </div>
       ) : (accounts ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">
-          No social accounts connected yet.
+          No social accounts connected yet. Use <strong>Paste Token</strong> above to connect.
         </p>
       ) : (
         <div className="space-y-2">
           {(accounts ?? []).map((acc) => {
             const expiresAt = acc.token_expires_at ? new Date(acc.token_expires_at) : null
             const isExpired = expiresAt ? expiresAt < new Date() : false
-            const daysLeft = expiresAt
+            const daysLeft  = expiresAt
               ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400000))
               : null
 
@@ -211,10 +282,10 @@ function ConnectedAccounts() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {isExpired
-                        ? '⚠ Token expired — re-connect'
-                        : daysLeft !== null
+                        ? '⚠ Token expired — reconnect'
+                        : daysLeft !== null && daysLeft < 3650
                         ? `Token valid for ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`
-                        : 'Token active'}
+                        : '✓ Token active (permanent)'}
                     </p>
                   </div>
                 </div>
