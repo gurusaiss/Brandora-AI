@@ -2,17 +2,17 @@
 Campaign CRUD routes.
 """
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.exceptions import NotFoundError
-from app.schemas.campaign import Campaign, CampaignPost
+from app.schemas.campaign import Campaign, CampaignPost, SocialAccount
 from app.schemas.content import ContentGeneration
 from app.schemas.organization import Organization
 from app.schemas.user import User, UserOrganizationMembership
@@ -101,6 +101,37 @@ class CampaignPostCreateRequest(BaseModel):
     scheduled_at: Optional[str] = None
     sequence_order: int = 0
     content_generation_id: Optional[uuid.UUID] = None
+
+
+class AutoCampaignCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    topic: str = Field(..., min_length=3, description="What to generate content about")
+    social_account_id: uuid.UUID
+    frequency: str = Field("daily", description="daily/weekly/biweekly/monthly")
+    post_time: str = Field("09:00", description="HH:MM in IST (24h)")
+    post_days: Optional[List[str]] = Field(default_factory=list, description="['mon','wed','fri'] for weekly")
+    image_url: Optional[str] = None
+
+
+class AutoCampaignResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    topic: Optional[str]
+    status: str
+    is_scheduled: bool
+    frequency: str
+    post_time: str
+    post_days: Optional[List[str]]
+    next_run_at: Optional[datetime]
+    last_run_at: Optional[datetime]
+    published_posts: int
+    total_posts: int
+    image_url: Optional[str]
+    social_account_platform: Optional[str] = None
+    social_account_name: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class CampaignPostResponse(BaseModel):
@@ -192,6 +223,98 @@ async def create_campaign(
     await db.flush()
     return CampaignResponse.model_validate(campaign)
 
+
+# ── Auto-Campaign Routes ──────────────────────────────────────────────────────
+# IMPORTANT: These MUST come before /{campaign_id} routes to avoid FastAPI
+# trying to parse the literal string "auto" as a UUID.
+
+@router.get("/auto", response_model=List[AutoCampaignResponse])
+async def list_auto_campaigns(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all auto-scheduled campaigns for the org."""
+    org = await _get_user_org(current_user, db)
+    result = await db.execute(
+        select(Campaign).where(
+            Campaign.organization_id == org.id,
+            Campaign.is_scheduled == True,
+            Campaign.status != "archived",
+        ).order_by(Campaign.created_at.desc())
+    )
+    campaigns = result.scalars().all()
+
+    items = []
+    for c in campaigns:
+        sa_platform = sa_name = None
+        if c.social_account_id:
+            sa = (await db.execute(
+                select(SocialAccount).where(SocialAccount.id == c.social_account_id)
+            )).scalar_one_or_none()
+            if sa:
+                sa_platform = sa.platform
+                sa_name     = sa.account_name
+        r = AutoCampaignResponse.model_validate(c)
+        r.social_account_platform = sa_platform
+        r.social_account_name     = sa_name
+        items.append(r)
+    return items
+
+
+@router.post("/auto", response_model=AutoCampaignResponse, status_code=status.HTTP_201_CREATED)
+async def create_auto_campaign(
+    payload: AutoCampaignCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an auto-scheduled campaign."""
+    org = await _get_user_org(current_user, db)
+
+    # Verify social account belongs to org
+    sa = (await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.id == payload.social_account_id,
+            SocialAccount.organization_id == org.id,
+            SocialAccount.is_active == True,
+        )
+    )).scalar_one_or_none()
+    if not sa:
+        raise HTTPException(status_code=404, detail="Social account not found or inactive.")
+
+    # Calculate first run time
+    from app.core.scheduler import _next_run
+    now = datetime.now(timezone.utc)
+    next_run = _next_run(payload.frequency, payload.post_time, payload.post_days or [], now)
+
+    campaign = Campaign(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        user_id=current_user.id,
+        name=payload.name,
+        topic=payload.topic,
+        social_account_id=payload.social_account_id,
+        frequency=payload.frequency,
+        post_time=payload.post_time,
+        post_days=payload.post_days or [],
+        image_url=payload.image_url,
+        is_scheduled=True,
+        status="active",
+        next_run_at=next_run,
+        platforms=[sa.platform],
+        total_posts=0,
+        published_posts=0,
+        campaign_type="awareness",
+    )
+    db.add(campaign)
+    await db.flush()
+
+    r = AutoCampaignResponse.model_validate(campaign)
+    r.social_account_platform = sa.platform
+    r.social_account_name     = sa.account_name
+    return r
+
+
+# ── Single campaign routes (UUID param — must come AFTER /auto) ───────────────
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(
@@ -346,6 +469,50 @@ async def list_campaign_posts(
         .order_by(CampaignPost.sequence_order)
     )
     return [CampaignPostResponse.model_validate(p) for p in result.scalars().all()]
+
+
+@router.patch("/{campaign_id}/toggle", response_model=AutoCampaignResponse)
+async def toggle_auto_campaign(
+    campaign_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pause an active auto-campaign or resume a paused one."""
+    org = await _get_user_org(current_user, db)
+    result = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id, Campaign.organization_id == org.id)
+    )
+    campaign = result.scalar_one_or_none()
+    if not campaign:
+        raise NotFoundError(f"Campaign {campaign_id} not found.")
+
+    if campaign.status == "active":
+        campaign.status = "draft"   # paused
+    else:
+        campaign.status = "active"
+        # Re-calculate next_run_at when resuming
+        if not campaign.next_run_at or campaign.next_run_at < datetime.now(timezone.utc):
+            from app.core.scheduler import _next_run
+            campaign.next_run_at = _next_run(
+                campaign.frequency, campaign.post_time, campaign.post_days or [],
+                datetime.now(timezone.utc)
+            )
+
+    await db.flush()
+
+    sa_platform = sa_name = None
+    if campaign.social_account_id:
+        sa = (await db.execute(
+            select(SocialAccount).where(SocialAccount.id == campaign.social_account_id)
+        )).scalar_one_or_none()
+        if sa:
+            sa_platform = sa.platform
+            sa_name     = sa.account_name
+
+    r = AutoCampaignResponse.model_validate(campaign)
+    r.social_account_platform = sa_platform
+    r.social_account_name     = sa_name
+    return r
 
 
 @router.post("/{campaign_id}/posts", response_model=CampaignPostResponse, status_code=status.HTTP_201_CREATED)

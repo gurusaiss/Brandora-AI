@@ -192,6 +192,18 @@ export const campaignApi = {
   update: (id: string, data: Record<string, unknown>) =>
     api.patch(`/campaigns/${id}`, data),
   delete: (id: string) => api.delete(`/campaigns/${id}`),
+  // ── Auto-campaign scheduler ───────────────────────────────────────────────
+  listAuto: () => api.get('/campaigns/auto'),
+  createAuto: (data: {
+    name: string
+    topic: string
+    social_account_id: string
+    frequency: string
+    post_time: string
+    post_days?: string[]
+    image_url?: string
+  }) => api.post('/campaigns/auto', data),
+  toggle: (id: string) => api.patch(`/campaigns/${id}/toggle`),
 }
 
 // ─── Festivals ────────────────────────────────────────────────────────────────

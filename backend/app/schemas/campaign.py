@@ -54,6 +54,21 @@ class Campaign(Base, TimestampMixin):
     total_posts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_posts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # ── Auto-scheduler fields ────────────────────────────────────────────────
+    topic: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    social_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("social_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="daily")
+    post_time: Mapped[str] = mapped_column(String(5), nullable=False, default="09:00")
+    post_days: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, default=list)
+    is_scheduled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     organization: Mapped["Organization"] = relationship(  # type: ignore[name-defined]
         "Organization", back_populates="campaigns"
