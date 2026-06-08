@@ -24,7 +24,7 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { Send } from 'lucide-react'
-import { contentApi, campaignApi, socialAccountsApi } from '@/lib/api'
+import { contentApi, campaignApi, socialAccountsApi, toArray } from '@/lib/api'
 import {
   cn,
   getPlatformLabel,
@@ -166,7 +166,7 @@ function ResultCard({
     queryKey: ['social-accounts'],
     queryFn: async () => {
       const res = await socialAccountsApi.list()
-      return (res.data as any[]).filter(
+      return toArray<any>(res.data).filter(
         (a) => a.platform === 'facebook_page' || a.platform === 'instagram',
       )
     },

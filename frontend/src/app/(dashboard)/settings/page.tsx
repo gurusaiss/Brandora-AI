@@ -18,7 +18,7 @@ import {
   XCircle,
   ExternalLink,
 } from 'lucide-react'
-import { teamApi, authApi, socialAccountsApi } from '@/lib/api'
+import { teamApi, authApi, socialAccountsApi, toArray } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 import type { TeamMember } from '@/types'
 
@@ -78,14 +78,14 @@ function ConnectedAccounts() {
     queryKey: ['social-accounts'],
     queryFn: async () => {
       const res = await socialAccountsApi.list()
-      return res.data as Array<{
+      return toArray<{
         id: string
         platform: string
         account_id: string
         account_name: string | null
         is_active: boolean
         token_expires_at: string | null
-      }>
+      }>(res.data)
     },
   })
 
@@ -298,7 +298,7 @@ export default function SettingsPage() {
     queryKey: ['team-members'],
     queryFn: async () => {
       const res = await teamApi.list()
-      return res.data as TeamMember[]
+      return toArray<TeamMember>(res.data)
     },
   })
 
