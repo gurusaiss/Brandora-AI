@@ -144,4 +144,21 @@ export const organizationApi = {
   update: (data: Record<string, unknown>) => api.patch('/organizations/me', data),
 }
 
+// ─── Social Accounts ──────────────────────────────────────────────────────────
+export const socialAccountsApi = {
+  /** List all connected social accounts */
+  list: () => api.get('/social-accounts/'),
+  /** Get Meta OAuth URL — redirect the user's browser to it */
+  connectMeta: () => api.get('/social-accounts/connect/meta'),
+  /** Get LinkedIn OAuth URL */
+  connectLinkedIn: () => api.get('/social-accounts/connect/linkedin'),
+  /** Get Twitter OAuth URL */
+  connectTwitter: () => api.get('/social-accounts/connect/twitter'),
+  /** Disconnect (soft-delete) an account by DB id */
+  disconnect: (accountId: string) => api.delete(`/social-accounts/${accountId}`),
+  /** Publish to Facebook Page or Instagram Business account */
+  metaPost: (data: { account_id: string; message: string; image_url?: string }) =>
+    api.post('/social-accounts/meta/post', data),
+}
+
 export default api

@@ -71,11 +71,15 @@ class Settings(BaseSettings):
     # ── Social OAuth ──────────────────────────────────────────────────────────
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
-    INSTAGRAM_APP_ID: str = ""
-    INSTAGRAM_APP_SECRET: str = ""
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""
     TWITTER_BEARER_TOKEN: str = ""
+
+    # ── Meta (Facebook + Instagram) ───────────────────────────────────────────
+    META_APP_ID: str = ""
+    META_APP_SECRET: str = ""
+    # Callback must match exactly what is set in Meta App → Facebook Login → Valid OAuth Redirect URIs
+    META_REDIRECT_URI: str = "https://brandora-backend-dntm.onrender.com/api/v1/social-accounts/callback/meta"
 
     # ── Rate Limits / Tier Caps ───────────────────────────────────────────────
     MAX_GENERATIONS_FREE_TIER: int = 20

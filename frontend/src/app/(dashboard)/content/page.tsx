@@ -23,7 +23,8 @@ import {
   ChevronUp,
   RotateCcw,
 } from 'lucide-react'
-import { contentApi, campaignApi } from '@/lib/api'
+import { Send } from 'lucide-react'
+import { contentApi, campaignApi, socialAccountsApi } from '@/lib/api'
 import {
   cn,
   getPlatformLabel,
@@ -155,7 +156,38 @@ function ResultCard({
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [scheduleDateTime, setScheduleDateTime] = useState('')
   const [showCampaignSelector, setShowCampaignSelector] = useState(false)
+  const [showMetaPublish, setShowMetaPublish] = useState(false)
+  const [metaAccountId, setMetaAccountId] = useState('')
+  const [metaImageUrl, setMetaImageUrl] = useState('')
   const queryClient = useQueryClient()
+
+  // Fetch connected Meta accounts (facebook_page + instagram)
+  const metaAccountsQuery = useQuery({
+    queryKey: ['social-accounts'],
+    queryFn: async () => {
+      const res = await socialAccountsApi.list()
+      return (res.data as any[]).filter(
+        (a) => a.platform === 'facebook_page' || a.platform === 'instagram',
+      )
+    },
+    enabled: showMetaPublish,
+    staleTime: 60_000,
+  })
+  const metaAccounts: any[] = metaAccountsQuery.data ?? []
+
+  const metaPostMutation = useMutation({
+    mutationFn: ({ accountId, message, imageUrl }: { accountId: string; message: string; imageUrl?: string }) =>
+      socialAccountsApi.metaPost({ account_id: accountId, message, image_url: imageUrl || undefined }),
+    onSuccess: () => {
+      setShowMetaPublish(false)
+      setMetaAccountId('')
+      setMetaImageUrl('')
+      toast.success('Published to Meta!')
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? 'Failed to publish to Meta')
+    },
+  })
 
   // Campaigns query — cached, fetched lazily when selector is opened
   const campaignsQuery = useQuery({
@@ -366,6 +398,7 @@ function ResultCard({
             onClick={() => {
               setShowScheduleForm((prev) => !prev)
               setShowCampaignSelector(false)
+              setShowMetaPublish(false)
             }}
             className={cn(
               'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
@@ -383,11 +416,31 @@ function ResultCard({
             )}
           </button>
 
+          {/* Publish to Meta button */}
+          <button
+            onClick={() => {
+              setShowMetaPublish((prev) => !prev)
+              setShowScheduleForm(false)
+              setShowCampaignSelector(false)
+            }}
+            className={cn(
+              'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
+              showMetaPublish
+                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                : 'bg-background text-foreground border-border hover:bg-muted',
+            )}
+          >
+            <Send className="w-3.5 h-3.5" />
+            Publish to Meta
+            {showMetaPublish ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+
           {/* Add to Campaign button */}
           <button
             onClick={() => {
               setShowCampaignSelector((prev) => !prev)
               setShowScheduleForm(false)
+              setShowMetaPublish(false)
             }}
             className={cn(
               'h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors',
@@ -436,6 +489,99 @@ function ResultCard({
                 Cancel
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Meta publish panel */}
+        {showMetaPublish && (
+          <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+              Publish to Facebook / Instagram
+            </p>
+
+            {metaAccountsQuery.isLoading && (
+              <div className="flex items-center gap-2 py-1">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Loading connected accounts…</span>
+              </div>
+            )}
+
+            {!metaAccountsQuery.isLoading && metaAccounts.length === 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">No Meta accounts connected yet.</p>
+                <a
+                  href="/settings"
+                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  → Go to Settings → Connected Accounts
+                </a>
+              </div>
+            )}
+
+            {metaAccounts.length > 0 && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Select account</label>
+                  <select
+                    value={metaAccountId}
+                    onChange={(e) => setMetaAccountId(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  >
+                    <option value="">Choose account…</option>
+                    {metaAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.platform === 'facebook_page' ? '📘' : '📸'}{' '}
+                        {a.account_name || a.account_id} ({a.platform === 'facebook_page' ? 'Facebook Page' : 'Instagram'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Optional image URL — required for Instagram */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">
+                    Image URL{' '}
+                    <span className="text-muted-foreground font-normal">
+                      (required for Instagram, optional for Facebook)
+                    </span>
+                  </label>
+                  <input
+                    type="url"
+                    value={metaImageUrl}
+                    onChange={(e) => setMetaImageUrl(e.target.value)}
+                    placeholder="https://example.com/image.jpg"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() =>
+                      metaPostMutation.mutate({
+                        accountId: metaAccountId,
+                        message:   result.generated_content,
+                        imageUrl:  metaImageUrl || undefined,
+                      })
+                    }
+                    disabled={!metaAccountId || metaPostMutation.isPending}
+                    className="h-8 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    {metaPostMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                    Publish Now
+                  </button>
+                  <button
+                    onClick={() => setShowMetaPublish(false)}
+                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
