@@ -8,6 +8,13 @@ interface AuthState {
   accessToken: string | null
   isLoading: boolean
   isAuthenticated: boolean
+
+  // ── Hydration flag ─────────────────────────────────────────────────────────
+  // False until Zustand has finished reading from localStorage.
+  // The auth guard in LayoutShell must wait for this before redirecting.
+  _hasHydrated: boolean
+  setHasHydrated: (value: boolean) => void
+
   setUser: (user: User | null) => void
   setOrganization: (org: Organization | null) => void
   setAccessToken: (token: string | null) => void
@@ -24,6 +31,9 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       isLoading: false,
       isAuthenticated: false,
+      _hasHydrated: false,
+
+      setHasHydrated: (value) => set({ _hasHydrated: value }),
 
       setUser: (user) => set({ user }),
       setOrganization: (organization) => set({ organization }),
@@ -60,6 +70,10 @@ export const useAuthStore = create<AuthState>()(
         organization: state.organization,
         isAuthenticated: state.isAuthenticated,
       }),
+      // Called as soon as Zustand finishes reading from localStorage
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true)
+      },
     },
   ),
 )
