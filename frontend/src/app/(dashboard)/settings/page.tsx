@@ -197,7 +197,7 @@ function ConnectedAccounts() {
           <div className="border-t border-border bg-background px-4 pb-4 pt-3 space-y-3">
             {/* Instructions */}
             <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 space-y-1.5 text-xs text-blue-800 dark:text-blue-300">
-              <p className="font-semibold">How to get your Page Access Token (2 min):</p>
+              <p className="font-semibold">How to connect (takes ~2 min) — token never expires:</p>
               <ol className="list-decimal list-inside space-y-1 leading-relaxed">
                 <li>
                   Open{' '}
@@ -212,9 +212,11 @@ function ConnectedAccounts() {
                 </li>
                 <li>Top-right dropdown → select your Meta App</li>
                 <li>Click <strong>"Generate Access Token"</strong> → tick <code>pages_manage_posts</code>, <code>instagram_basic</code>, <code>instagram_content_publish</code></li>
-                <li>In the query box run: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">GET me/accounts</code></li>
-                <li>Copy the <code>access_token</code> for your Facebook Page</li>
-                <li>Paste it below ↓</li>
+                <li>
+                  Copy the <strong>User Access Token</strong> shown at the top of the page{' '}
+                  <span className="text-blue-600 dark:text-blue-400">(do NOT run me/accounts first)</span>
+                </li>
+                <li>Paste it below — we automatically convert it to a permanent token ↓</li>
               </ol>
             </div>
 
