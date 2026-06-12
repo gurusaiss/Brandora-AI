@@ -272,10 +272,11 @@ async def meta_oauth_callback(
                 "fb_exchange_token": short_token,
             },
         )
-        ll_data      = ll_res.json()
-        long_token   = ll_data.get("access_token", short_token)
-        expires_secs = ll_data.get("expires_in", 5183944)  # ~60 days default
-        token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_secs)
+        ll_data    = ll_res.json()
+        long_token = ll_data.get("access_token", short_token)
+        # Page Access Tokens derived from a long-lived UAT never expire.
+        # We store a 10-year sentinel; they only invalidate on password change.
+        token_expires_at = datetime.now(timezone.utc) + timedelta(days=3650)
 
         # ── Fetch Facebook Pages ───────────────────────────────────────────
         pages_res = await client.get(

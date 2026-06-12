@@ -243,6 +243,7 @@ async def list_content(
 
     query = select(ContentGeneration).where(
         ContentGeneration.organization_id == org.id,
+        ContentGeneration.user_id == current_user.id,
         ContentGeneration.is_deleted == False,
     )
     if platform:
