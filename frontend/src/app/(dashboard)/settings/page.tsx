@@ -79,6 +79,7 @@ function ConnectedAccounts() {
   const [showManual, setShowManual]           = useState(false)
   const [manualToken, setManualToken]         = useState('')
   const [manualLoading, setManualLoading]     = useState(false)
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
 
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['social-accounts'],
@@ -98,6 +99,7 @@ function ConnectedAccounts() {
   const disconnectMutation = useMutation({
     mutationFn: (id: string) => socialAccountsApi.disconnect(id),
     onMutate: async (id) => {
+      setDisconnectingId(id)
       await queryClient.cancelQueries({ queryKey: ['social-accounts'] })
       const prev = queryClient.getQueryData(['social-accounts'])
       queryClient.setQueryData(['social-accounts'], (old: any[]) =>
@@ -110,7 +112,10 @@ function ConnectedAccounts() {
       if (ctx?.prev) queryClient.setQueryData(['social-accounts'], ctx.prev)
       toast.error('Failed to disconnect')
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['social-accounts'] }),
+    onSettled: () => {
+      setDisconnectingId(null)
+      queryClient.invalidateQueries({ queryKey: ['social-accounts'] })
+    },
   })
 
   const handleConnectMeta = async () => {
@@ -291,11 +296,11 @@ function ConnectedAccounts() {
                 </div>
                 <button
                   onClick={() => disconnectMutation.mutate(acc.id)}
-                  disabled={disconnectMutation.isPending}
+                  disabled={disconnectingId === acc.id}
                   className="p-1.5 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50 flex-shrink-0"
                   title="Disconnect account"
                 >
-                  {disconnectMutation.isPending ? (
+                  {disconnectingId === acc.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <XCircle className="w-4 h-4" />
@@ -413,7 +418,7 @@ export default function SettingsPage() {
   }
 
   const usedPct = Math.min(
-    ((organization?.ai_generations_used ?? 0) / (organization?.ai_generations_limit ?? 20)) * 100,
+    ((organization?.ai_generations_used ?? 0) / (Math.max(organization?.ai_generations_limit ?? 20, 1))) * 100,
     100,
   )
 

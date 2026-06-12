@@ -47,9 +47,10 @@ def _next_run(frequency: str, post_time: str, post_days: list, from_utc: datetim
         days = [day_map[d] for d in (post_days or []) if d in day_map]
         if not days:
             days = [0, 2, 4]  # Mon / Wed / Fri default
-        for i in range(1, 8):
+        # Start at i=0 so today is included if its slot hasn't passed yet
+        for i in range(0, 8):
             candidate = today_at + timedelta(days=i)
-            if candidate.weekday() in days:
+            if candidate.weekday() in days and now_ist < candidate:
                 return candidate.astimezone(timezone.utc)
         return (today_at + timedelta(days=7)).astimezone(timezone.utc)
 
@@ -221,7 +222,7 @@ async def run_auto_campaigns() -> None:
                     content = await _generate_content(topic, sa.platform)
 
                     # Post to Meta
-                    await _post_to_meta(sa, content, campaign.image_url)
+                    platform_post_id = await _post_to_meta(sa, content, campaign.image_url)
 
                     # Save record
                     cp = CampaignPost(
@@ -231,6 +232,7 @@ async def run_auto_campaigns() -> None:
                         status="published",
                         published_at=now,
                         sequence_order=(campaign.published_posts or 0) + 1,
+                        media_urls=[platform_post_id] if platform_post_id else [],
                     )
                     db.add(cp)
                     campaign.published_posts = (campaign.published_posts or 0) + 1

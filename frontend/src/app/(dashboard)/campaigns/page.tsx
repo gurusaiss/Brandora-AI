@@ -252,7 +252,9 @@ function AutoCampaignForm({
   const needsImage = selectedAccount?.platform === 'instagram'
 
   const canSubmit = name.trim() && topic.trim() && accountId &&
-    (!needsImage || imageUrl.trim()) && !createMutation.isPending
+    (!needsImage || imageUrl.trim()) &&
+    (frequency !== 'weekly' || postDays.length > 0) &&
+    !createMutation.isPending
 
   return (
     <div className="space-y-4">
@@ -520,7 +522,8 @@ export default function CampaignsPage() {
 
   // ── Toggle auto campaign ──────────────────────────────────────────────────
   const toggleMutation = useMutation({
-    mutationFn: (id: string) => { setTogglingId(id); return campaignApi.toggle(id) },
+    mutationFn: (id: string) => campaignApi.toggle(id),
+    onMutate: (id) => setTogglingId(id),
     onSuccess: (res) => {
       const c = res.data as AutoCampaign
       toast.success(c.status === 'active' ? 'Campaign resumed ▶' : 'Campaign paused ⏸')
@@ -573,7 +576,8 @@ export default function CampaignsPage() {
     mutationFn: (id: string) => campaignApi.delete(id),
     onSuccess: () => {
       setDeleteConfirmId(null)
-      queryClient.invalidateQueries({ queryKey: ['campaigns', 'campaigns-auto'] })
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['campaigns-auto'] })
       toast.success('Campaign deleted')
     },
     onError: () => toast.error('Failed to delete campaign'),

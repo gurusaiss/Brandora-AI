@@ -91,6 +91,7 @@ export interface Campaign {
   platforms: Platform[]
   total_posts: number
   published_posts: number
+  is_scheduled?: boolean
   created_at: string
   updated_at?: string
 }

@@ -163,7 +163,7 @@ export const contentApi = {
     api.get('/content/history', { params }),
   getById: (id: string) => api.get(`/content/${id}`),
   save: (id: string) => api.post(`/content/${id}/save`),
-  unsave: (id: string) => api.post(`/content/${id}/save`),
+  unsave: (id: string) => api.delete(`/content/${id}/save`),
   feedback: (id: string, feedback: 'thumbs_up' | 'thumbs_down') =>
     api.post(`/content/${id}/feedback`, { feedback }),
   delete: (id: string) => api.delete(`/content/${id}`),
