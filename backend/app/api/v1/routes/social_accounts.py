@@ -413,54 +413,70 @@ async def connect_meta_manual(
         if exchange_res.status_code == 200:
             long_lived_uat = exchange_res.json().get("access_token")
 
-        # ── Step 2: Fetch pages ─────────────────────────────────────────────────
-        # Use the long-lived UAT to get Page Access Tokens (these never expire).
-        # Fall back to treating the pasted token as a direct Page Access Token.
+        # ── Step 2: Fetch pages via me/accounts, then fall back to /me ─────────
+        # Strategy:
+        #   1. Try me/accounts with long-lived UAT (best — gives permanent page tokens)
+        #   2. Try me/accounts with raw token (works if raw token is a UAT)
+        #   3. Fall back to /me (raw token is a Page token) — get IG in a separate call
         pages_token = long_lived_uat or raw_token
+        pages: list[dict] = []
 
-        if long_lived_uat:
-            # Fetch all pages the user manages; each page token is permanent
-            accounts_res = await client.get(
+        # Attempt 1 & 2: me/accounts
+        for token_to_try in ([long_lived_uat, raw_token] if long_lived_uat else [raw_token]):
+            if not token_to_try:
+                continue
+            acc_res = await client.get(
                 f"{META_GRAPH}/me/accounts",
                 params={
                     "fields":       "id,name,access_token,instagram_business_account",
-                    "access_token": long_lived_uat,
+                    "access_token": token_to_try,
                 },
             )
-            if accounts_res.status_code != 200:
-                err = accounts_res.json().get("error", {}).get("message", "Unknown")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not fetch pages: {err}",
-                )
-            pages = accounts_res.json().get("data", [])
-            if not pages:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No Facebook Pages found. Create a Page at facebook.com/pages/create first.",
-                )
-        else:
-            # Pasted token is a Page Access Token — validate it directly
-            page_res = await client.get(
+            if acc_res.status_code == 200:
+                data = acc_res.json().get("data", [])
+                if data:
+                    pages = data
+                    # Prefer long-lived page tokens when we have the UAT
+                    if token_to_try == long_lived_uat:
+                        pages_token = long_lived_uat
+                    break
+
+        # Attempt 3: /me (token is already a Page Access Token)
+        if not pages:
+            me_res = await client.get(
                 f"{META_GRAPH}/me",
-                params={
-                    "fields":       "id,name,instagram_business_account",
-                    "access_token": raw_token,
-                },
+                params={"fields": "id,name", "access_token": raw_token},
             )
-            if page_res.status_code != 200:
-                err = page_res.json().get("error", {}).get("message", "Invalid token")
+            if me_res.status_code != 200:
+                err = me_res.json().get("error", {}).get("message", "Invalid token")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid token: {err}",
                 )
-            pdata = page_res.json()
+            pdata = me_res.json()
+            page_id = pdata.get("id")
+            # Fetch instagram_business_account separately so a missing field
+            # doesn't bubble up as an error on the user node
+            ig_info = None
+            if page_id:
+                ig_res = await client.get(
+                    f"{META_GRAPH}/{page_id}",
+                    params={"fields": "instagram_business_account", "access_token": raw_token},
+                )
+                if ig_res.status_code == 200:
+                    ig_info = ig_res.json().get("instagram_business_account")
             pages = [{
-                "id":           pdata.get("id"),
-                "name":         pdata.get("name", "Facebook Page"),
-                "access_token": raw_token,
-                "instagram_business_account": pdata.get("instagram_business_account"),
+                "id":                          page_id,
+                "name":                        pdata.get("name", "Facebook Page"),
+                "access_token":                raw_token,
+                "instagram_business_account":  ig_info,
             }]
+
+        if not pages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No Facebook Pages found. Make sure the token has pages_show_list permission.",
+            )
 
         # ── Step 3: Upsert each page (and linked IG) ───────────────────────────
         # Permanent Page Access Tokens → 10-year expiry sentinel in DB.
