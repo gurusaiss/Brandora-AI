@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = "https://your-project.supabase.co"
     SUPABASE_ANON_KEY: str = "your-anon-key"
     SUPABASE_SERVICE_KEY: str = "your-service-key"
+    SUPABASE_STORAGE_BUCKET: str = "campaign-images"
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"

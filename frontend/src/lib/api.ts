@@ -183,6 +183,19 @@ export const brandProfileApi = {
     api.post('/brand-profile/voice/analyze', data),
 }
 
+// ─── Campaign Automation Engine ───────────────────────────────────────────────
+export const automationApi = {
+  create:         (data: Record<string, unknown>) => api.post('/campaigns/automation', data),
+  list:           () => api.get('/campaigns/automation/list'),
+  detail:         (id: string) => api.get(`/campaigns/${id}/detail`),
+  updatePost:     (campaignId: string, postId: string, data: Record<string, unknown>) =>
+                    api.patch(`/campaigns/${campaignId}/posts/${postId}`, data),
+  regeneratePost: (campaignId: string, postId: string) =>
+                    api.post(`/campaigns/${campaignId}/posts/${postId}/regenerate`),
+  toggle:         (id: string) => api.patch(`/campaigns/${id}/toggle`),
+  delete:         (id: string) => api.delete(`/campaigns/${id}`),
+}
+
 // ─── Campaigns ───────────────────────────────────────────────────────────────
 export const campaignApi = {
   list: (params?: Record<string, unknown>) =>

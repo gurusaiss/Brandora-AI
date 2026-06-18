@@ -69,6 +69,14 @@ class Campaign(Base, TimestampMixin):
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # ── Automation engine fields ─────────────────────────────────────────────
+    campaign_goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_audience: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tone: Mapped[str] = mapped_column(String(50), nullable=False, default="professional")
+    keywords: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, default=list)
+    cta: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    generate_images: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     # Relationships
     organization: Mapped["Organization"] = relationship(  # type: ignore[name-defined]
         "Organization", back_populates="campaigns"
@@ -78,6 +86,11 @@ class Campaign(Base, TimestampMixin):
         back_populates="campaign",
         cascade="all, delete-orphan",
         order_by="CampaignPost.sequence_order",
+    )
+    images: Mapped[List["CampaignImage"]] = relationship(
+        "CampaignImage",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -102,9 +115,10 @@ class CampaignPost(Base, TimestampMixin):
         nullable=True,
     )
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     hashtags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, default=list)
     media_urls: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, default=list)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -112,15 +126,54 @@ class CampaignPost(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="draft"
-    )  # draft/scheduled/published/failed
+        String(20), nullable=False, default="scheduled"
+    )  # scheduled/generating/publishing/published/failed/retrying
     sequence_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    platform_post_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationship
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="posts")
 
     def __repr__(self) -> str:
         return f"<CampaignPost id={self.id} platform={self.platform} status={self.status}>"
+
+
+class CampaignImage(Base, TimestampMixin):
+    """AI-generated images for campaign posts — persisted so they survive restarts."""
+
+    __tablename__ = "campaign_images"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    post_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaign_posts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_used: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    model_used: Mapped[str] = mapped_column(String(100), nullable=False, default="pollinations")
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="images")
+
+    def __repr__(self) -> str:
+        return f"<CampaignImage id={self.id} model={self.model_used}>"
 
 
 class Festival(Base, TimestampMixin):

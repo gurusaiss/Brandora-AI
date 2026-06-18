@@ -2,17 +2,20 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import {
   Plus, Target, Calendar, Pencil, Trash2, Loader2, Check,
   Zap, Pause, Play, Clock, Instagram, Facebook, RefreshCw,
+  BarChart2, CheckCircle2, AlertCircle, ChevronRight, ArrowRight,
+  Sparkles, Image as ImageIcon,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { campaignApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
+import { campaignApi, automationApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
 import { EmptyState } from '@/components/shared/empty-state'
 import { Modal } from '@/components/shared/modal'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { cn, formatDate, getPlatformIcon, getPlatformLabel } from '@/lib/utils'
-import type { Campaign, Platform } from '@/types'
+import type { Campaign, Platform, AutomationCampaign } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -408,6 +411,349 @@ function AutoCampaignForm({
   )
 }
 
+// ─── Automation Campaign Card ─────────────────────────────────────────────────
+
+const STATUS_COLORS_AUTO: Record<string, string> = {
+  active:    'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  paused:    'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  completed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  draft:     'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+}
+
+function AutomationCampaignCard({ campaign, onDelete }: { campaign: AutomationCampaign; onDelete: (id: string) => void }) {
+  const router = useRouter()
+  const isActive = campaign.status === 'active'
+
+  return (
+    <div
+      className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow cursor-pointer group"
+      onClick={() => router.push(`/campaigns/${campaign.id}`)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
+            <h3 className="font-semibold text-foreground truncate">{campaign.name}</h3>
+          </div>
+          {campaign.campaign_goal && (
+            <p className="text-xs text-muted-foreground mt-0.5 ml-6 line-clamp-2">{campaign.campaign_goal}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className={cn('text-xs font-medium px-2 py-1 rounded-full capitalize', STATUS_COLORS_AUTO[campaign.status] ?? STATUS_COLORS_AUTO.draft)}>
+            {campaign.status}
+          </span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: 'Total',    value: campaign.total_posts,     color: 'text-foreground'   },
+          { label: 'Done',     value: campaign.posts_published, color: 'text-green-500'    },
+          { label: 'Queued',   value: campaign.posts_scheduled, color: 'text-blue-500'     },
+          { label: 'Failed',   value: campaign.posts_failed,    color: 'text-red-500'      },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="text-center bg-muted/50 rounded-lg py-1.5">
+            <p className={`text-base font-semibold ${color}`}>{value}</p>
+            <p className="text-[10px] text-muted-foreground">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Progress bar */}
+      <div>
+        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+          <span>{campaign.frequency} · {campaign.post_time} IST</span>
+          <span>{campaign.progress_pct}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${campaign.progress_pct}%` }} />
+        </div>
+      </div>
+
+      {/* Platform + dates */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          {campaign.social_account_platform === 'instagram' ? '📸' : campaign.social_account_platform === 'facebook_page' ? '📘' : '🔗'}
+          {campaign.social_account_name ?? campaign.social_account_platform ?? '—'}
+        </span>
+        <span>{campaign.start_date ? `${campaign.start_date} → ${campaign.end_date ?? '…'}` : '—'}</span>
+      </div>
+
+      {/* Delete button (stop propagation) */}
+      <div className="flex justify-end pt-1 border-t border-border">
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(campaign.id) }}
+          className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Automation Create Form (multi-step) ──────────────────────────────────────
+
+const TONES = ['professional', 'inspirational', 'educational', 'urgent', 'conversational']
+const FREQS = [
+  { value: 'daily',          label: 'Daily' },
+  { value: 'alternate_days', label: 'Every 2 days' },
+  { value: 'weekly',         label: 'Weekly' },
+  { value: 'monthly',        label: 'Monthly' },
+]
+
+function AutomationCreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [step, setStep] = useState(1)
+  const [form, setForm] = useState({
+    name: '', campaign_goal: '', description: '', topic: '',
+    target_audience: '', tone: 'professional',
+    keywords: '', target_hashtags: '', cta: '',
+    start_date: '', end_date: '', frequency: 'weekly',
+    post_time: '09:00', post_days: ['mon', 'wed', 'fri'] as string[],
+    social_account_id: '', generate_images: false,
+  })
+
+  const { data: accounts } = useQuery({
+    queryKey: ['social-accounts'],
+    queryFn: async () => {
+      const res = await socialAccountsApi.list()
+      return toArray<{ id: string; platform: string; account_name: string | null }>(res.data)
+    },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => automationApi.create({
+      name: form.name,
+      campaign_goal: form.campaign_goal || form.name,
+      description: form.description || undefined,
+      topic: form.topic || form.campaign_goal || form.name,
+      target_audience: form.target_audience,
+      tone: form.tone,
+      keywords: form.keywords ? form.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+      target_hashtags: form.target_hashtags ? form.target_hashtags.split(',').map(s => s.trim()).filter(Boolean) : [],
+      cta: form.cta || undefined,
+      start_date: form.start_date,
+      end_date: form.end_date,
+      frequency: form.frequency,
+      post_time: form.post_time,
+      post_days: ['weekly', 'alternate_days'].includes(form.frequency) ? form.post_days : [],
+      social_account_id: form.social_account_id,
+      generate_images: form.generate_images,
+    }),
+    onSuccess: () => {
+      toast.success('Campaign engine started! Posts will be auto-generated and published on schedule.')
+      onCreated()
+    },
+    onError: (err) => toast.error(getApiError(err)),
+  })
+
+  const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
+  const toggleDay = (day: string) => set('post_days',
+    form.post_days.includes(day) ? form.post_days.filter(d => d !== day) : [...form.post_days, day])
+
+  const canGoNext = step === 1
+    ? form.name.trim() && form.campaign_goal.trim()
+    : step === 2
+    ? form.target_audience.trim()
+    : step === 3
+    ? form.start_date && form.end_date
+    : form.social_account_id
+
+  const fieldCls = 'w-full px-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50'
+
+  return (
+    <div className="space-y-5">
+      {/* Step indicator */}
+      <div className="flex items-center gap-1">
+        {[1,2,3,4].map(s => (
+          <div key={s} className={cn(
+            'h-1.5 flex-1 rounded-full transition-colors',
+            s <= step ? 'bg-primary' : 'bg-muted',
+          )} />
+        ))}
+      </div>
+
+      {/* Step 1: Basic info */}
+      {step === 1 && (
+        <div className="space-y-3">
+          <h4 className="font-medium text-foreground text-sm">Campaign basics</h4>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Campaign name *</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)}
+              placeholder="e.g. World Toilet Day 2026" autoFocus
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Campaign goal *</label>
+            <input value={form.campaign_goal} onChange={e => set('campaign_goal', e.target.value)}
+              placeholder="e.g. Raise awareness about sanitation access in rural India"
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Topic / brief (optional)</label>
+            <textarea value={form.topic} onChange={e => set('topic', e.target.value)}
+              placeholder="Extra context the AI should know when writing posts…"
+              rows={2} className={cn(fieldCls, 'py-2 resize-none')} />
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Audience & tone */}
+      {step === 2 && (
+        <div className="space-y-3">
+          <h4 className="font-medium text-foreground text-sm">Audience & content style</h4>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Target audience *</label>
+            <input value={form.target_audience} onChange={e => set('target_audience', e.target.value)}
+              placeholder="e.g. NGO workers, CSR professionals, rural health advocates"
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 block">Tone</label>
+            <div className="flex flex-wrap gap-2">
+              {TONES.map(t => (
+                <button key={t} type="button" onClick={() => set('tone', t)}
+                  className={cn('h-8 px-3 rounded-xl text-sm font-medium transition-colors capitalize',
+                    form.tone === t ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground')}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Keywords (comma-separated)</label>
+            <input value={form.keywords} onChange={e => set('keywords', e.target.value)}
+              placeholder="WASH, sanitation, hygiene, clean water"
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Hashtags (comma-separated)</label>
+            <input value={form.target_hashtags} onChange={e => set('target_hashtags', e.target.value)}
+              placeholder="#WorldToiletDay, #Sanitation2026, #WASH"
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Call to action (optional)</label>
+            <input value={form.cta} onChange={e => set('cta', e.target.value)}
+              placeholder="e.g. Visit our website, Donate now, Follow for updates"
+              className={cn(fieldCls, 'h-10')} />
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Schedule */}
+      {step === 3 && (
+        <div className="space-y-3">
+          <h4 className="font-medium text-foreground text-sm">Posting schedule</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Start date *</label>
+              <input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)}
+                className={cn(fieldCls, 'h-10')} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">End date *</label>
+              <input type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)}
+                className={cn(fieldCls, 'h-10')} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Frequency</label>
+              <select value={form.frequency} onChange={e => set('frequency', e.target.value)}
+                className={cn(fieldCls, 'h-10')}>
+                {FREQS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Post time (IST)</label>
+              <input type="time" value={form.post_time} onChange={e => set('post_time', e.target.value)}
+                className={cn(fieldCls, 'h-10')} />
+            </div>
+          </div>
+          {['weekly', 'alternate_days'].includes(form.frequency) && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">Post on days</label>
+              <div className="flex gap-1.5 flex-wrap">
+                {(['mon','tue','wed','thu','fri','sat','sun'] as const).map(day => (
+                  <button key={day} type="button" onClick={() => toggleDay(day)}
+                    className={cn('h-8 w-12 rounded-lg text-xs font-medium transition-colors capitalize',
+                      form.post_days.includes(day) ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground')}>
+                    {day.charAt(0).toUpperCase() + day.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 4: Platform */}
+      {step === 4 && (
+        <div className="space-y-3">
+          <h4 className="font-medium text-foreground text-sm">Platform & options</h4>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Social account *</label>
+            {!accounts?.length ? (
+              <p className="text-sm text-muted-foreground py-2">No connected accounts. Go to Settings → Connected Accounts first.</p>
+            ) : (
+              <select value={form.social_account_id} onChange={e => set('social_account_id', e.target.value)}
+                className={cn(fieldCls, 'h-10')}>
+                <option value="">Choose account…</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.platform === 'facebook_page' ? '📘 ' : '📸 '}{a.account_name || a.platform}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50 border border-border">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">AI-generated images</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Generate a unique image for every post (DALL-E 3 or free Pollinations.ai)</p>
+            </div>
+            <button type="button" onClick={() => set('generate_images', !form.generate_images)}
+              className={cn('w-10 h-6 rounded-full transition-colors relative flex-shrink-0',
+                form.generate_images ? 'bg-primary' : 'bg-muted border border-border')}>
+              <span className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                form.generate_images ? 'translate-x-4' : 'translate-x-0.5')} />
+            </button>
+          </div>
+          {form.generate_images && (
+            <p className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+              Images are generated ~4 hours before publish time and stored in Supabase. Instagram requires images — this will be used automatically.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Navigation */}
+      <div className="flex gap-3 pt-1">
+        <button onClick={step === 1 ? onClose : () => setStep(s => s - 1)}
+          className="flex-1 h-10 border border-border rounded-xl text-sm font-medium hover:bg-muted transition-colors">
+          {step === 1 ? 'Cancel' : '← Back'}
+        </button>
+        {step < 4 ? (
+          <button onClick={() => setStep(s => s + 1)} disabled={!canGoNext}
+            className="flex-1 h-10 bg-primary text-primary-foreground disabled:opacity-50 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors">
+            Next <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button onClick={() => createMutation.mutate()} disabled={!canGoNext || createMutation.isPending}
+            className="flex-1 h-10 bg-primary text-primary-foreground disabled:opacity-50 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors">
+            {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            Launch Campaign
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Manual Campaign Card ─────────────────────────────────────────────────────
 
 interface CampaignForm {
@@ -487,7 +833,8 @@ function CampaignCard({
 
 export default function CampaignsPage() {
   const queryClient = useQueryClient()
-  const [tab, setTab]                   = useState<'auto' | 'manual'>('auto')
+  const [tab, setTab]                   = useState<'engine' | 'auto' | 'manual'>('engine')
+  const [showEngineForm, setShowEngineForm] = useState(false)
   const [showAutoForm, setShowAutoForm] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal]     = useState(false)
@@ -497,6 +844,24 @@ export default function CampaignsPage() {
   const [statusFilter, setStatusFilter]         = useState<StatusTab>('all')
   const [createForm, setCreateForm] = useState<CampaignForm>(EMPTY_FORM)
   const [editForm, setEditForm]     = useState<CampaignForm>(EMPTY_FORM)
+
+  // ── Automation Engine campaigns query ─────────────────────────────────────
+  const { data: engineCampaigns = [], isLoading: engineLoading } = useQuery<AutomationCampaign[]>({
+    queryKey: ['campaigns-engine'],
+    queryFn: async () => {
+      const res = await automationApi.list()
+      return toArray<AutomationCampaign>(res.data)
+    },
+  })
+
+  const deleteEngineMutation = useMutation({
+    mutationFn: (id: string) => automationApi.delete(id),
+    onSuccess: () => {
+      toast.success('Campaign deleted')
+      queryClient.invalidateQueries({ queryKey: ['campaigns-engine'] })
+    },
+    onError: (e) => toast.error(getApiError(e)),
+  })
 
   // ── Auto campaigns query ──────────────────────────────────────────────────
   const { data: autoCampaigns = [], isLoading: autoLoading } = useQuery({
@@ -594,24 +959,72 @@ export default function CampaignsPage() {
           </p>
         </div>
         <button
-          onClick={() => tab === 'auto' ? setShowAutoForm(true) : setShowCreateModal(true)}
-          className="flex items-center gap-2 h-10 px-4 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl transition-colors text-sm"
+          onClick={() => tab === 'engine' ? setShowEngineForm(true) : tab === 'auto' ? setShowAutoForm(true) : setShowCreateModal(true)}
+          className="flex items-center gap-2 h-10 px-4 bg-primary text-primary-foreground hover:opacity-90 font-semibold rounded-xl transition-opacity text-sm"
         >
-          {tab === 'auto' ? <Zap className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {tab === 'auto' ? 'New Auto Campaign' : 'New Campaign'}
+          {tab === 'engine' ? <Sparkles className="w-4 h-4" /> : tab === 'auto' ? <Zap className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {tab === 'engine' ? 'New Automation' : tab === 'auto' ? 'New Auto Campaign' : 'New Campaign'}
         </button>
       </div>
 
       {/* Tab switcher */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit">
-        {(['auto', 'manual'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={cn('h-8 px-4 text-sm font-medium rounded-lg transition-colors',
-              tab === t ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            {t === 'auto' ? '⚡ Auto Scheduled' : '📋 Manual'}
+        {([
+          { key: 'engine', label: '✨ Campaign Engine' },
+          { key: 'auto',   label: '⚡ Auto Scheduled' },
+          { key: 'manual', label: '📋 Manual' },
+        ] as const).map(({ key, label }) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={cn('h-8 px-4 text-sm font-medium rounded-lg transition-colors whitespace-nowrap',
+              tab === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            {label}
           </button>
         ))}
       </div>
+
+      {/* ── ENGINE TAB ───────────────────────────────────────────────────── */}
+      {tab === 'engine' && (
+        <>
+          {/* Create form modal */}
+          <Modal isOpen={showEngineForm} onClose={() => setShowEngineForm(false)} title="Create Automation Campaign" size="md">
+            <AutomationCreateForm
+              onClose={() => setShowEngineForm(false)}
+              onCreated={() => {
+                setShowEngineForm(false)
+                queryClient.invalidateQueries({ queryKey: ['campaigns-engine'] })
+              }}
+            />
+          </Modal>
+
+          {engineLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[1, 2, 3].map(i => <div key={i} className="h-52 bg-card border border-border rounded-2xl animate-pulse" />)}
+            </div>
+          ) : engineCampaigns.length === 0 ? (
+            <EmptyState
+              icon={<Sparkles className="w-8 h-8" />}
+              title="No automation campaigns yet"
+              description="Create a campaign once — the engine auto-generates unique AI content for every slot and publishes on schedule."
+              action={{ label: 'Create Automation Campaign', onClick: () => setShowEngineForm(true) }}
+            />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {engineCampaigns.map(c => (
+                <AutomationCampaignCard
+                  key={c.id}
+                  campaign={c}
+                  onDelete={(id) => deleteEngineMutation.mutate(id)}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-xl p-4 text-sm text-purple-800 dark:text-purple-300">
+            <strong>How Campaign Engine works:</strong> You define the goal, audience, tone, and schedule.
+            The engine generates the full posting calendar upfront, then auto-creates unique AI content per post ~4 hours before publish time — and publishes automatically.
+          </div>
+        </>
+      )}
 
       {/* ── AUTO TAB ─────────────────────────────────────────────────────── */}
       {tab === 'auto' && (

@@ -263,11 +263,22 @@ function ConnectedAccounts() {
       ) : (
         <div className="space-y-2">
           {(accounts ?? []).map((acc) => {
-            const expiresAt = acc.token_expires_at ? new Date(acc.token_expires_at) : null
-            const isExpired = expiresAt ? expiresAt < new Date() : false
-            const daysLeft  = expiresAt
+            const expiresAt  = acc.token_expires_at ? new Date(acc.token_expires_at) : null
+            const isExpired  = expiresAt ? expiresAt < new Date() : false
+            const daysLeft   = expiresAt
               ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400000))
               : null
+            const isPermanent = daysLeft !== null && daysLeft >= 3650
+
+            const expiryLabel = (() => {
+              if (isExpired) return { text: 'Token expired — reconnect', color: 'text-destructive', dot: 'bg-destructive' }
+              if (isPermanent) return { text: 'Permanent (never expires)', color: 'text-green-600 dark:text-green-400', dot: 'bg-green-500' }
+              if (expiresAt) {
+                const fmt = expiresAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                return { text: `Expires ${fmt} (${daysLeft}d left)`, color: daysLeft! < 7 ? 'text-amber-600' : 'text-muted-foreground', dot: daysLeft! < 7 ? 'bg-amber-500' : 'bg-green-500' }
+              }
+              return { text: 'Expiry unknown', color: 'text-muted-foreground', dot: 'bg-muted-foreground' }
+            })()
 
             return (
               <div
@@ -275,24 +286,21 @@ function ConnectedAccounts() {
                 className="flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-background hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      isExpired ? 'bg-destructive' : 'bg-green-500'
-                    }`}
-                  />
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${expiryLabel.dot}`} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <PlatformBadge platform={acc.platform} />
                       <span className="text-sm text-foreground font-medium truncate max-w-[180px]">
                         {acc.account_name || acc.account_id}
                       </span>
+                      {isPermanent && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 text-[10px] font-semibold">
+                          PERMANENT
+                        </span>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {isExpired
-                        ? '⚠ Token expired — reconnect'
-                        : daysLeft !== null && daysLeft < 3650
-                        ? `Token valid for ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`
-                        : '✓ Token active (permanent)'}
+                    <p className={`text-xs mt-0.5 ${expiryLabel.color}`}>
+                      {expiryLabel.text}
                     </p>
                   </div>
                 </div>

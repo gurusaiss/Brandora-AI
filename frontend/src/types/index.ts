@@ -185,6 +185,82 @@ export interface PaginatedResponse<T> {
   page_size: number
 }
 
+// ── Campaign Automation Engine ────────────────────────────────────────────────
+
+export type PostStatus = 'scheduled' | 'generating' | 'publishing' | 'published' | 'failed' | 'retrying'
+
+export interface AutomationPost {
+  id: string
+  campaign_id: string
+  platform: string
+  content: string
+  hashtags: string[] | null
+  image_url: string | null
+  status: PostStatus
+  sequence_order: number
+  retry_count: number
+  max_retries: number
+  failure_reason: string | null
+  platform_post_id: string | null
+  scheduled_at: string | null
+  published_at: string | null
+  created_at: string
+}
+
+export interface AutomationCampaign {
+  id: string
+  name: string
+  campaign_goal: string | null
+  description: string | null
+  target_audience: string | null
+  platforms: string[]
+  frequency: string
+  post_time: string
+  post_days: string[] | null
+  tone: string
+  keywords: string[] | null
+  target_hashtags: string[] | null
+  cta: string | null
+  generate_images: boolean
+  status: string
+  start_date: string | null
+  end_date: string | null
+  total_posts: number
+  published_posts: number
+  social_account_id: string | null
+  social_account_platform: string | null
+  social_account_name: string | null
+  created_at: string
+  // analytics
+  posts_scheduled: number
+  posts_generating: number
+  posts_published: number
+  posts_failed: number
+  posts_remaining: number
+  progress_pct: number
+  posts: AutomationPost[]
+}
+
+export interface AutomationCampaignCreate {
+  name: string
+  campaign_goal: string
+  description?: string
+  target_audience: string
+  platforms: string[]
+  social_account_id: string
+  start_date: string
+  end_date: string
+  frequency: string
+  post_time: string
+  post_days?: string[]
+  tone: string
+  keywords?: string[]
+  target_hashtags?: string[]
+  cta?: string
+  generate_images: boolean
+  topic?: string
+}
+
 export interface LoginRequest {
   email: string
   password: string
