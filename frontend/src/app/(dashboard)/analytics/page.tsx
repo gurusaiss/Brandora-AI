@@ -27,23 +27,12 @@ import {
 } from '@/lib/utils'
 import type { AnalyticsOverview } from '@/types'
 
-const MOCK_PLATFORM_DATA = [
-  { platform: 'LinkedIn', count: 45 },
-  { platform: 'Instagram', count: 32 },
-  { platform: 'Twitter', count: 28 },
-  { platform: 'Reel Script', count: 15 },
-  { platform: 'Carousel', count: 12 },
-  { platform: 'CSR Story', count: 8 },
-  { platform: 'Founder Post', count: 20 },
-]
-
-const MOCK_DAILY = Array.from({ length: 30 }, (_, i) => ({
-  date: new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('en', {
-    month: 'short',
-    day: 'numeric',
-  }),
-  generations: Math.floor(Math.random() * 15) + 1,
-}))
+interface TopContentItem {
+  id: string
+  platform: string
+  input_topic: string
+  quality_score: number
+}
 
 export default function AnalyticsPage() {
   const { data: overview, isLoading } = useQuery({
@@ -51,6 +40,15 @@ export default function AnalyticsPage() {
     queryFn: async () => {
       const res = await analyticsApi.overview()
       return res.data as AnalyticsOverview
+    },
+    retry: false,
+  })
+
+  const { data: perfData } = useQuery({
+    queryKey: ['analytics', 'content-performance'],
+    queryFn: async () => {
+      const res = await analyticsApi.contentPerformance()
+      return res.data as { top_content: TopContentItem[] }
     },
     retry: false,
   })
@@ -157,7 +155,7 @@ export default function AnalyticsPage() {
             </h3>
             <ResponsiveContainer width="100%" height={260}>
               <LineChart
-                data={overview?.daily_activity ?? MOCK_DAILY}
+                data={overview?.daily_activity ?? []}
                 margin={{ left: -20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -192,8 +190,8 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Top content table (mock) */}
-      {!isLoading && (
+      {/* Top content table — real data */}
+      {!isLoading && perfData?.top_content && perfData.top_content.length > 0 && (
         <div className="bg-card border border-border rounded-2xl p-5">
           <h3 className="font-semibold text-foreground mb-4">
             Top Content by Quality Score
@@ -202,51 +200,30 @@ export default function AnalyticsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-2 text-xs font-medium text-muted-foreground pb-3">
-                    Topic
-                  </th>
-                  <th className="text-left py-2 text-xs font-medium text-muted-foreground pb-3">
-                    Platform
-                  </th>
-                  <th className="text-right py-2 text-xs font-medium text-muted-foreground pb-3">
-                    Quality
-                  </th>
+                  <th className="text-left py-2 text-xs font-medium text-muted-foreground pb-3">Topic</th>
+                  <th className="text-left py-2 text-xs font-medium text-muted-foreground pb-3">Platform</th>
+                  <th className="text-right py-2 text-xs font-medium text-muted-foreground pb-3">Quality</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {[
-                  { topic: 'World Menstrual Hygiene Day — impact post', platform: 'linkedin', score: 92 },
-                  { topic: 'Clean water initiative — 10,000 families reached', platform: 'instagram', score: 88 },
-                  { topic: 'CSR report 2025 highlights', platform: 'csr_story', score: 85 },
-                  { topic: 'Breaking taboos around menstrual health', platform: 'twitter', score: 80 },
-                  { topic: 'Founder journey — 5 years of impact', platform: 'founder_post', score: 78 },
-                ].map((row, i) => (
-                  <tr key={i} className="hover:bg-muted/30 transition-colors">
+                {perfData.top_content.map((row) => (
+                  <tr key={row.id} className="hover:bg-muted/30 transition-colors">
                     <td className="py-3 pr-4">
-                      <span className="text-foreground">
-                        {truncate(row.topic, 50)}
-                      </span>
+                      <span className="text-foreground">{truncate(row.input_topic, 50)}</span>
                     </td>
                     <td className="py-3 pr-4">
-                      <span
-                        className={cn(
-                          'text-xs px-2 py-0.5 rounded-full font-medium',
-                          getPlatformColor(row.platform),
-                        )}
-                      >
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', getPlatformColor(row.platform))}>
                         {getPlatformLabel(row.platform as never)}
                       </span>
                     </td>
                     <td className="py-3 text-right">
-                      <span
-                        className={cn(
-                          'text-xs font-bold px-2 py-0.5 rounded-full',
-                          row.score >= 75
-                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-                        )}
-                      >
-                        {row.score}
+                      <span className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full',
+                        row.quality_score >= 75
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
+                      )}>
+                        {row.quality_score}
                       </span>
                     </td>
                   </tr>
