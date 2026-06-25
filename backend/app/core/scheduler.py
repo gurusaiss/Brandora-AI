@@ -89,8 +89,11 @@ async def _post_to_meta(account, content: str, image_url: str | None) -> str:
                                         "access_token": token})
             if c.status_code != 200:
                 raise RuntimeError(f"IG container: {c.json().get('error', {}).get('message', c.text)}")
+            media_id = c.json().get("id")
+            if not media_id:
+                raise RuntimeError(f"IG container response missing id: {c.json()}")
             p = await client.post(f"{GRAPH}/{account.account_id}/media_publish",
-                                  data={"creation_id": c.json()["id"], "access_token": token})
+                                  data={"creation_id": media_id, "access_token": token})
             if p.status_code != 200:
                 raise RuntimeError(f"IG publish: {p.json().get('error', {}).get('message', p.text)}")
             return p.json().get("id", "")

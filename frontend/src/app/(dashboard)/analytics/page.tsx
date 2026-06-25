@@ -124,7 +124,7 @@ export default function AnalyticsPage() {
                           count: v,
                         }),
                       )
-                    : MOCK_PLATFORM_DATA
+                    : []
                 }
                 margin={{ left: -20 }}
               >

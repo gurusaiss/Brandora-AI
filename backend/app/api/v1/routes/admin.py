@@ -33,7 +33,7 @@ async def admin_stats(db: AsyncSession = Depends(get_db)):
         select(Organization.subscription_tier, func.count(Organization.id).label("count"))
         .group_by(Organization.subscription_tier)
     )
-    tier_breakdown = {row.subscription_tier: row.count for row in tier_result}
+    tier_breakdown = {row.subscription_tier: row.count for row in tier_result.all()}
 
     # Top orgs by usage
     top_orgs_result = await db.execute(
@@ -43,9 +43,9 @@ async def admin_stats(db: AsyncSession = Depends(get_db)):
     )
 
     return {
-        "total_users": total_users.scalar_one() or 0,
-        "total_organizations": total_orgs.scalar_one() or 0,
-        "total_generations": total_gens.scalar_one() or 0,
+        "total_users": total_users.scalar() or 0,
+        "total_organizations": total_orgs.scalar() or 0,
+        "total_generations": total_gens.scalar() or 0,
         "tier_breakdown": tier_breakdown,
         "top_organizations_by_usage": [
             {
@@ -53,7 +53,7 @@ async def admin_stats(db: AsyncSession = Depends(get_db)):
                 "generations_used": row.ai_generations_used,
                 "tier": row.subscription_tier,
             }
-            for row in top_orgs_result
+            for row in top_orgs_result.all()
         ],
     }
 

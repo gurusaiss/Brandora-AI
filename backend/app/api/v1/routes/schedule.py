@@ -276,6 +276,6 @@ async def delete_scheduled_post(
 @router.post("/trigger-publish", tags=["Schedule"])
 async def trigger_publish():
     """Manually trigger the scheduled post publisher (no auth — testing only)."""
-    from app.core.scheduler import process_scheduled_posts
-    await process_scheduled_posts()
+    from app.core.scheduler import process_campaign_posts
+    await process_campaign_posts()
     return {"message": "Manual publish triggered"}
