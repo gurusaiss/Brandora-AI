@@ -599,8 +599,9 @@ export default function ContentPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => { setDeletingId(id); return contentApi.delete(id) },
+    mutationFn: (id: string) => contentApi.delete(id),
     onMutate: async (deletedId: string) => {
+      setDeletingId(deletedId)
       const key = CONTENT_KEYS.history(historyFilters)
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData(key)
