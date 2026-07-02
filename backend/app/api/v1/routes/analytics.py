@@ -190,7 +190,7 @@ async def get_content_performance(
         )
         .group_by(ContentGeneration.feedback)
     )
-    feedback_breakdown = {row.feedback: row.cnt for row in feedback_result}
+    feedback_breakdown = {row.feedback: row.cnt for row in feedback_result.all()}
 
     return {
         "top_content": [
