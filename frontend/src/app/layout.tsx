@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ThemeProvider } from 'next-themes'
 import { Toaster } from 'react-hot-toast'
+import * as Tooltip from '@radix-ui/react-tooltip'
 import { QueryProvider } from '@/components/providers/query-provider'
 import '@/styles/globals.css'
 
@@ -52,6 +53,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
+            <Tooltip.Provider delayDuration={300}>
             {children}
             <Toaster
               position="top-right"
@@ -79,6 +81,7 @@ export default function RootLayout({
                 },
               }}
             />
+            </Tooltip.Provider>
           </QueryProvider>
         </ThemeProvider>
       </body>

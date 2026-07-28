@@ -128,6 +128,7 @@ function ResultCard({
   const saveMutation = useMutation({
     mutationFn: (id: string) => contentApi.save(id),
     onMutate: async (id: string) => {
+      const wasAlreadySaved = result?.id === id ? isSaved : undefined
       if (result?.id === id) setIsSaved((prev) => !prev)
       const key = CONTENT_KEYS.history(historyFilters)
       const previous = queryClient.getQueryData(key)
@@ -137,7 +138,7 @@ function ResultCard({
           item.id === id ? { ...item, is_saved: !item.is_saved } : item,
         ),
       }))
-      return { previous, key }
+      return { previous, key, wasAlreadySaved }
     },
     onError: (_err: any, id: any, ctx: any) => {
       if (ctx?.previous) queryClient.setQueryData(ctx.key, ctx.previous)
@@ -145,8 +146,8 @@ function ResultCard({
       toast.error('Failed to save content')
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.historyAll }),
-    onSuccess: (_data: any, id: any) =>
-      toast.success(result?.id === id && isSaved ? 'Removed from saved' : 'Saved! ✓'),
+    onSuccess: (_data: any, id: any, ctx: any) =>
+      toast.success(result?.id === id && ctx?.wasAlreadySaved ? 'Removed from saved' : 'Saved! ✓'),
   })
 
   const feedbackMutation = useMutation({
@@ -546,7 +547,7 @@ export default function ContentPage() {
   const [result, setResult] = useState<ContentGeneration | null>(null)
   const [historyFilters, setHistoryFilters] = useState<ContentHistoryFilters>({ page: 1 })
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
 
   const queryClient = useQueryClient()
 
@@ -601,7 +602,7 @@ export default function ContentPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => contentApi.delete(id),
     onMutate: async (deletedId: string) => {
-      setDeletingId(deletedId)
+      setDeletingIds((prev) => new Set(prev).add(deletedId))
       const key = CONTENT_KEYS.history(historyFilters)
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData(key)
@@ -616,7 +617,10 @@ export default function ContentPage() {
       if (ctx?.previous) queryClient.setQueryData(ctx.key, ctx.previous)
       toast.error('Failed to delete')
     },
-    onSettled: () => { setDeletingId(null); queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.historyAll }) },
+    onSettled: (_data: any, _err: any, id: any) => {
+      setDeletingIds((prev) => { const next = new Set(prev); next.delete(id); return next })
+      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.historyAll })
+    },
     onSuccess: () => toast.success('Deleted'),
   })
 
@@ -918,7 +922,7 @@ export default function ContentPage() {
                   item={item}
                   historyFilters={historyFilters}
                   onDelete={() => deleteMutation.mutate(item.id)}
-                  isDeleting={deletingId === item.id}
+                  isDeleting={deletingIds.has(item.id)}
                   isExpanded={expandedIds.has(item.id)}
                   onToggleExpand={() => toggleExpanded(item.id)}
                   onUseAgain={() => regenerateFromHistory(item)}

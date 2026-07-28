@@ -5,6 +5,7 @@ import type {
   ContentHistoryFilters,
   LoginRequest,
   RegisterRequest,
+  AutomationCampaignCreate,
 } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
@@ -52,6 +53,7 @@ api.interceptors.response.use(
     // If another refresh is already in-flight, queue this request
     if (_refreshing) {
       return new Promise((resolve, reject) => {
+        original!._retry = true  // prevent re-entry if the new token is also rejected
         _queue.push({
           resolve: (token) => {
             original!.headers!.Authorization = `Bearer ${token}`
@@ -81,7 +83,7 @@ api.interceptors.response.use(
       // Use a plain axios call — not the intercepted `api` instance — to avoid loops
       const { data } = await axios.post(`${BASE}/auth/refresh`, {
         refresh_token: refreshToken,
-      })
+      }, { timeout: 10000 })
       const newToken: string = data.access_token
       const newRefresh: string = data.refresh_token ?? refreshToken
 
@@ -104,6 +106,11 @@ api.interceptors.response.use(
       if (typeof window !== 'undefined') {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
+        // Sync Zustand store so persisted isAuthenticated doesn't stay true
+        try {
+          const { useAuthStore } = await import('@/store/auth-store')
+          useAuthStore.getState().logout()
+        } catch { /* ignore */ }
         window.location.href = '/login'
       }
       return Promise.reject(refreshErr)
@@ -186,7 +193,7 @@ export const brandProfileApi = {
 
 // ─── Campaign Automation Engine ───────────────────────────────────────────────
 export const automationApi = {
-  create:         (data: Record<string, unknown>) => api.post('/campaigns/automation', data),
+  create:         (data: AutomationCampaignCreate) => api.post('/campaigns/automation', data),
   list:           () => api.get('/campaigns/automation/list'),
   detail:         (id: string) => api.get(`/campaigns/${id}/detail`),
   updatePost:     (campaignId: string, postId: string, data: Record<string, unknown>) =>
@@ -280,7 +287,7 @@ export const organizationApi = {
 
 // ─── Social Accounts ──────────────────────────────────────────────────────────
 export const socialAccountsApi = {
-  list: () => api.get('/social-accounts/'),
+  list: () => api.get('/social-accounts'),
   connectMeta: () => api.get('/social-accounts/connect/meta'),
   connectLinkedIn: () => api.get('/social-accounts/connect/linkedin'),
   connectTwitter: () => api.get('/social-accounts/connect/twitter'),

@@ -38,9 +38,8 @@ export function QualityScore({ score, size = 'md' }: QualityScoreProps) {
   const label = getQualityLabel(score)
 
   return (
-    <Tooltip.Provider>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
           <div className="flex flex-col items-center gap-1 cursor-default">
             <div className="relative" style={{ width: svgSize, height: svgSize }}>
               <svg
@@ -109,6 +108,5 @@ export function QualityScore({ score, size = 'md' }: QualityScoreProps) {
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
-    </Tooltip.Provider>
   )
 }

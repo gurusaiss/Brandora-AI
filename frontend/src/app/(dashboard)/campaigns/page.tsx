@@ -525,24 +525,29 @@ function AutomationCreateForm({ onClose, onCreated }: { onClose: () => void; onC
   })
 
   const createMutation = useMutation({
-    mutationFn: () => automationApi.create({
-      name: form.name,
-      campaign_goal: form.campaign_goal || form.name,
-      description: form.description || undefined,
-      topic: form.topic || form.campaign_goal || form.name,
-      target_audience: form.target_audience,
-      tone: form.tone,
-      keywords: form.keywords ? form.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
-      target_hashtags: form.target_hashtags ? form.target_hashtags.split(',').map(s => s.trim()).filter(Boolean) : [],
-      cta: form.cta || undefined,
-      start_date: form.start_date,
-      end_date: form.end_date,
-      frequency: form.frequency,
-      post_time: form.post_time,
-      post_days: ['weekly', 'alternate_days'].includes(form.frequency) ? form.post_days : [],
-      social_account_id: form.social_account_id,
-      generate_images: form.generate_images,
-    }),
+    mutationFn: () => {
+      const selectedAccount = (accounts ?? []).find(a => a.id === form.social_account_id)
+      const platforms = selectedAccount ? [selectedAccount.platform as import('@/types').Platform] : []
+      return automationApi.create({
+        name: form.name,
+        campaign_goal: form.campaign_goal || form.name,
+        description: form.description || undefined,
+        topic: form.topic || form.campaign_goal || form.name,
+        target_audience: form.target_audience,
+        tone: form.tone,
+        keywords: form.keywords ? form.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+        target_hashtags: form.target_hashtags ? form.target_hashtags.split(',').map(s => s.trim()).filter(Boolean) : [],
+        cta: form.cta || undefined,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        frequency: form.frequency,
+        post_time: form.post_time,
+        post_days: ['weekly', 'alternate_days'].includes(form.frequency) ? form.post_days : [],
+        social_account_id: form.social_account_id,
+        generate_images: form.generate_images,
+        platforms,
+      })
+    },
     onSuccess: () => {
       toast.success('Campaign engine started! Posts will be auto-generated and published on schedule.')
       onCreated()

@@ -207,22 +207,25 @@ export interface AutomationPost {
   created_at: string
 }
 
+export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'cancelled'
+export type CampaignFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly'
+
 export interface AutomationCampaign {
   id: string
   name: string
   campaign_goal: string | null
   description: string | null
   target_audience: string | null
-  platforms: string[]
-  frequency: string
+  platforms: Platform[]
+  frequency: CampaignFrequency | string
   post_time: string
   post_days: string[] | null
-  tone: string
+  tone: Tone | string
   keywords: string[] | null
   target_hashtags: string[] | null
   cta: string | null
   generate_images: boolean
-  status: string
+  status: CampaignStatus | string
   start_date: string | null
   end_date: string | null
   total_posts: number
@@ -246,14 +249,14 @@ export interface AutomationCampaignCreate {
   campaign_goal: string
   description?: string
   target_audience: string
-  platforms: string[]
+  platforms: Platform[]
   social_account_id: string
   start_date: string
   end_date: string
-  frequency: string
+  frequency: CampaignFrequency | string
   post_time: string
   post_days?: string[]
-  tone: string
+  tone: Tone | string
   keywords?: string[]
   target_hashtags?: string[]
   cta?: string
