@@ -36,6 +36,7 @@ from app.models.auth import (
     RegisterRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UserProfileUpdate,
     UserResponse,
 )
 from app.schemas.organization import Organization
@@ -208,22 +209,37 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     return UserResponse.model_validate(current_user)
 
 
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    payload: UserProfileUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the authenticated user's full_name."""
+    if payload.full_name is not None:
+        current_user.full_name = payload.full_name
+    await db.flush()
+    await db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+
+
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def forgot_password(
-    payload: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Trigger password reset email (logs token; real email TBD)."""
+    """Store a password reset token in Redis (TTL 1 h) and log it."""
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
     if user:
-        import secrets
-
         reset_token = secrets.token_urlsafe(32)
-        # TODO: store in Redis with TTL=1h and send email
+        redis_key = f"pwd_reset:{reset_token}"
+        await redis.set(redis_key, str(user.id), ex=3600)
         logger.info(
-            "Password reset requested",
+            "Password reset token stored",
             user_id=str(user.id),
-            reset_token=reset_token,  # Remove in production
+            reset_token=reset_token,  # Remove/email in production
         )
     # Always return 202 to prevent email enumeration
     return {"message": "If the email exists, a reset link has been sent."}
@@ -231,13 +247,28 @@ async def forgot_password(
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
 async def reset_password(
-    payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Reset password using a valid reset token."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Password reset via token not yet implemented — use Supabase Auth.",
-    )
+    """Validate the reset token from Redis and update the user's password."""
+    redis_key = f"pwd_reset:{payload.token}"
+    user_id_bytes = await redis.get(redis_key)
+    if not user_id_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+    user_id = user_id_bytes.decode() if isinstance(user_id_bytes, bytes) else user_id_bytes
+    user_result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id)))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found.")
+    user.hashed_password = get_password_hash(payload.new_password)
+    await db.flush()
+    await redis.delete(redis_key)
+    logger.info("Password reset successful", user_id=user_id)
+    return {"message": "Password updated successfully."}
 
 
 # ── Facebook OAuth (Sign in / Sign up) ───────────────────────────────────────

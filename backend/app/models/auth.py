@@ -38,6 +38,10 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, description="New password")
 
 
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=2, max_length=255)
+
+
 # ── Response Models ───────────────────────────────────────────────────────────
 
 class UserResponse(BaseModel):

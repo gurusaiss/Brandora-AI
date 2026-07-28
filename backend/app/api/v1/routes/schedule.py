@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import extract, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -270,12 +270,12 @@ async def delete_scheduled_post(
 # Manual publish trigger (no auth — for testing/ops; add IP guard before prod)
 # ---------------------------------------------------------------------------
 
-# TODO: Restrict to trusted IPs (e.g. internal Render network or admin IP)
-# before exposing to production. Add an IP whitelist middleware or a
-# X-Internal-Token header check.
 @router.post("/trigger-publish", tags=["Schedule"])
-async def trigger_publish():
-    """Manually trigger the scheduled post publisher (no auth — testing only)."""
+async def trigger_publish(x_admin_key: str = Header(...)):
+    """Manually trigger the scheduled post publisher (admin key required)."""
+    from app.core.config import settings
+    if x_admin_key != settings.SECRET_KEY[:16]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid admin key.")
     from app.core.scheduler import process_campaign_posts
     await process_campaign_posts()
     return {"message": "Manual publish triggered"}

@@ -104,7 +104,7 @@ async def get_overview(
     if prev_week > 0:
         generations_change_pct = round(((generations_this_week - prev_week) / prev_week) * 100, 1)
     else:
-        generations_change_pct = 12.0  # default positive signal
+        generations_change_pct = 0.0
 
     # Platform breakdown
     platform_result = await db.execute(

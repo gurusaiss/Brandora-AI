@@ -21,7 +21,7 @@ import {
   ChevronUp,
   Key,
 } from 'lucide-react'
-import { teamApi, authApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
+import { teamApi, authApi, organizationApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 import type { TeamMember } from '@/types'
 
@@ -345,10 +345,47 @@ export default function SettingsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const { user, organization, logout: storeLogout } = useAuthStore()
+  const { user, organization, setUser, setOrganization, logout: storeLogout } = useAuthStore()
 
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
+
+  // Profile / org editing
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [profileForm, setProfileForm] = useState({
+    full_name: user?.full_name ?? '',
+    org_name: organization?.name ?? '',
+    sector: organization?.sector ?? '',
+  })
+
+  // Keep form in sync when store loads
+  useEffect(() => {
+    setProfileForm({
+      full_name: user?.full_name ?? '',
+      org_name: organization?.name ?? '',
+      sector: organization?.sector ?? '',
+    })
+  }, [user?.full_name, organization?.name, organization?.sector])
+
+  const saveProfileMutation = useMutation({
+    mutationFn: async () => {
+      const [userRes, orgRes] = await Promise.all([
+        authApi.updateMe({ full_name: profileForm.full_name }),
+        organizationApi.update({
+          name: profileForm.org_name || undefined,
+          sector: profileForm.sector || undefined,
+        }),
+      ])
+      return { user: userRes.data, org: orgRes.data }
+    },
+    onSuccess: ({ user: u, org }) => {
+      if (u) setUser(u)
+      if (org) setOrganization(org)
+      toast.success('Profile updated')
+      setEditingProfile(false)
+    },
+    onError: () => toast.error('Failed to save changes'),
+  })
 
   // Handle Meta OAuth callback redirects
   useEffect(() => {
@@ -389,11 +426,11 @@ export default function SettingsPage() {
   const inviteMutation = useMutation({
     mutationFn: () => teamApi.invite({ email: inviteEmail, role: inviteRole }),
     onSuccess: () => {
-      toast.success(`Invitation sent to ${inviteEmail}`)
+      toast.success(`${inviteEmail} added to team`)
       setInviteEmail('')
       queryClient.invalidateQueries({ queryKey: ['team-members'] })
     },
-    onError: () => toast.error('Failed to send invitation'),
+    onError: () => toast.error('Could not add member — check the email address'),
   })
 
   const removeMutation = useMutation({
@@ -441,15 +478,16 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* ── Account ─────────────────────────────────────────────────────── */}
+      {/* ── Account + Organization (shared edit mode) ──────────────────── */}
       <SectionCard icon={UserCircle2} title="Account">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <label className={labelClass}>Full Name</label>
             <input
-              value={user?.full_name ?? 'User'}
-              readOnly
-              className={`${inputClass} bg-muted cursor-not-allowed`}
+              value={editingProfile ? profileForm.full_name : (user?.full_name ?? '')}
+              readOnly={!editingProfile}
+              onChange={(e) => setProfileForm((f) => ({ ...f, full_name: e.target.value }))}
+              className={`${inputClass} ${editingProfile ? '' : 'bg-muted cursor-not-allowed'}`}
             />
           </div>
           <div>
@@ -461,6 +499,32 @@ export default function SettingsPage() {
             />
           </div>
         </div>
+        <div className="flex justify-end gap-2 pt-1">
+          {editingProfile ? (
+            <>
+              <button
+                onClick={() => setEditingProfile(false)}
+                className="h-9 px-4 rounded-xl text-sm border border-border text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveProfileMutation.mutate()}
+                disabled={saveProfileMutation.isPending}
+                className="h-9 px-4 rounded-xl text-sm bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {saveProfileMutation.isPending ? 'Saving…' : 'Save changes'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setEditingProfile(true)}
+              className="h-9 px-4 rounded-xl text-sm border border-border text-foreground hover:bg-muted transition-colors"
+            >
+              Edit profile
+            </button>
+          )}
+        </div>
       </SectionCard>
 
       {/* ── Organization ────────────────────────────────────────────────── */}
@@ -469,17 +533,19 @@ export default function SettingsPage() {
           <div className="sm:col-span-2">
             <label className={labelClass}>Organization Name</label>
             <input
-              value={organization?.name ?? 'Your Organization'}
-              readOnly
-              className={`${inputClass} bg-muted cursor-not-allowed`}
+              value={editingProfile ? profileForm.org_name : (organization?.name ?? '')}
+              readOnly={!editingProfile}
+              onChange={(e) => setProfileForm((f) => ({ ...f, org_name: e.target.value }))}
+              className={`${inputClass} ${editingProfile ? '' : 'bg-muted cursor-not-allowed'}`}
             />
           </div>
           <div>
             <label className={labelClass}>Sector</label>
             <input
-              value={organization?.sector || ''}
-              readOnly
-              className={`${inputClass} bg-muted cursor-not-allowed`}
+              value={editingProfile ? profileForm.sector : (organization?.sector ?? '')}
+              readOnly={!editingProfile}
+              onChange={(e) => setProfileForm((f) => ({ ...f, sector: e.target.value }))}
+              className={`${inputClass} ${editingProfile ? '' : 'bg-muted cursor-not-allowed'}`}
             />
           </div>
         </div>

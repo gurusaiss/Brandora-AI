@@ -17,7 +17,7 @@ import {
   Twitter,
   Sparkles,
 } from 'lucide-react'
-import { brandProfileApi } from '@/lib/api'
+import { brandProfileApi, organizationApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 
 const SECTOR_OPTIONS = [
@@ -98,14 +98,21 @@ export default function OnboardingPage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const toneValues = toneToValues(data.tone)
-      await brandProfileApi.update({
-        organization_name: data.org_name,
-        sector_focus: data.sector ? [data.sector] : [],
-        linkedin_handle: data.linkedin_handle || undefined,
-        instagram_handle: data.instagram_handle || undefined,
-        twitter_handle: data.twitter_handle || undefined,
-        ...toneValues,
-      })
+      await Promise.all([
+        brandProfileApi.update({
+          organization_name: data.org_name,
+          sector_focus: data.sector ? [data.sector] : [],
+          linkedin_handle: data.linkedin_handle || undefined,
+          instagram_handle: data.instagram_handle || undefined,
+          twitter_handle: data.twitter_handle || undefined,
+          ...toneValues,
+        }),
+        organizationApi.update({
+          name: data.org_name || undefined,
+          sector: data.sector || undefined,
+          website: data.website || undefined,
+        }),
+      ])
     },
     onSuccess: () => {
       toast.success('Brand profile set up! Time to create content.')
