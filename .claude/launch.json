@@ -2,6 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "D:\\C\\INTERN\\3_PAD\\Brandora AI\\frontend",
+      "port": 3000
+    },
+    {
       "name": "userflow",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "7788"],
