@@ -92,6 +92,22 @@ async def _post_to_meta(account, content: str, image_url: str | None) -> str:
             media_id = c.json().get("id")
             if not media_id:
                 raise RuntimeError(f"IG container response missing id: {c.json()}")
+
+            # Poll until container is FINISHED before publishing
+            import asyncio as _asyncio
+            for _ in range(10):
+                await _asyncio.sleep(2)
+                st = await client.get(f"{GRAPH}/{media_id}",
+                                      params={"fields": "status_code,status", "access_token": token})
+                if st.status_code == 200:
+                    sc = st.json().get("status_code", "")
+                    if sc == "FINISHED":
+                        break
+                    if sc in ("ERROR", "EXPIRED"):
+                        raise RuntimeError(f"IG container processing failed: {st.json().get('status', sc)}")
+            else:
+                raise RuntimeError("IG container timed out waiting for FINISHED status")
+
             p = await client.post(f"{GRAPH}/{account.account_id}/media_publish",
                                   data={"creation_id": media_id, "access_token": token})
             if p.status_code != 200:

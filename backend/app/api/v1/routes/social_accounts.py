@@ -660,8 +660,42 @@ async def post_to_meta(
                 )
 
             creation_id = container_res.json().get("id")
+            if not creation_id:
+                err_body = container_res.json()
+                logger.error("Instagram container missing id", response=err_body)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Instagram container creation returned no ID. Response: {err_body}",
+                )
 
-            # Step 2 — Publish the container
+            # Step 2 — Poll container status until FINISHED (Instagram processes async)
+            # Meta recommends checking status_code before publishing
+            import asyncio
+            for attempt in range(10):
+                await asyncio.sleep(2)
+                status_res = await client.get(
+                    f"{META_GRAPH}/{creation_id}",
+                    params={"fields": "status_code,status", "access_token": token},
+                )
+                if status_res.status_code == 200:
+                    container_status = status_res.json().get("status_code", "")
+                    if container_status == "FINISHED":
+                        break
+                    if container_status in ("ERROR", "EXPIRED"):
+                        err_msg = status_res.json().get("status", container_status)
+                        logger.error("Instagram container processing failed", status=container_status, detail=err_msg)
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=f"Instagram media processing failed: {err_msg}",
+                        )
+                    # IN_PROGRESS — keep polling
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Instagram media container timed out (still processing after 20 s). Try again.",
+                )
+
+            # Step 3 — Publish the ready container
             publish_res = await client.post(
                 f"{META_GRAPH}/{ig_id}/media_publish",
                 data={
