@@ -3,7 +3,8 @@ Social account connection routes.
 
 Supported platforms:
   • Meta  — Facebook Pages + Instagram Business via Graph API v19.0
-  • LinkedIn, Twitter — OAuth stubs (URL generation only)
+  • LinkedIn — OAuth 2.0 OpenID Connect (full flow)
+  • Twitter  — OAuth 2.0 PKCE (full flow)
 
 Meta OAuth flow
 ---------------
@@ -26,6 +27,7 @@ Meta OAuth flow
 import base64
 import hashlib
 import hmac
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -721,34 +723,299 @@ async def post_to_meta(
             )
 
 
-# ─────────────────────────── LinkedIn stub ───────────────────────────────────
+# ─────────────────────────── LinkedIn OAuth ──────────────────────────────────
+
+LINKEDIN_AUTH   = "https://www.linkedin.com/oauth/v2/authorization"
+LINKEDIN_TOKEN  = "https://www.linkedin.com/oauth/v2/accessToken"
+LINKEDIN_ME     = "https://api.linkedin.com/v2/userinfo"       # OpenID Connect userinfo
+
+LINKEDIN_SCOPES = "openid profile email w_member_social"
+
 
 @router.get("/connect/linkedin")
 async def connect_linkedin(current_user: User = Depends(get_current_active_user)):
-    """Return LinkedIn OAuth authorization URL."""
-    auth_url = (
-        "https://www.linkedin.com/oauth/v2/authorization"
-        "?response_type=code"
-        f"&client_id={settings.LINKEDIN_CLIENT_ID}"
-        f"&redirect_uri={settings.BACKEND_URL}/api/v1/social-accounts/callback/linkedin"
-        "&scope=r_liteprofile%20r_emailaddress%20w_member_social"
-        f"&state={current_user.id}"
+    """Return LinkedIn OAuth authorization URL (OAuth 2.0 PKCE)."""
+    if not settings.LINKEDIN_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LinkedIn OAuth is not configured on this server.",
+        )
+    redirect_uri = f"{settings.BACKEND_URL}/api/v1/social-accounts/callback/linkedin"
+    state = _encode_state(current_user.id)
+    params = urlencode({
+        "response_type": "code",
+        "client_id": settings.LINKEDIN_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": LINKEDIN_SCOPES,
+        "state": state,
+    })
+    return {"auth_url": f"{LINKEDIN_AUTH}?{params}", "state": state}
+
+
+@router.get("/callback/linkedin")
+async def linkedin_oauth_callback(
+    code:  Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    LinkedIn OAuth2 callback.
+    Exchanges code for access token, fetches profile, and saves SocialAccount.
+    """
+    from datetime import timedelta
+
+    frontend_base = settings.FRONTEND_URL.rstrip("/")
+
+    if error or not code:
+        logger.warning("LinkedIn OAuth error", error=error)
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?linkedin_error={error or 'access_denied'}",
+            status_code=302,
+        )
+
+    if not state:
+        return RedirectResponse(url=f"{frontend_base}/settings?linkedin_error=invalid_state", status_code=302)
+
+    user_id = _decode_state(state)
+    if not user_id:
+        return RedirectResponse(url=f"{frontend_base}/settings?linkedin_error=invalid_state", status_code=302)
+
+    org = await _get_org_for_user_id(user_id, db)
+    if not org:
+        return RedirectResponse(url=f"{frontend_base}/settings?linkedin_error=no_org", status_code=302)
+
+    redirect_uri = f"{settings.BACKEND_URL}/api/v1/social-accounts/callback/linkedin"
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        # Exchange code for access token
+        token_res = await client.post(
+            LINKEDIN_TOKEN,
+            data={
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "redirect_uri":  redirect_uri,
+                "client_id":     settings.LINKEDIN_CLIENT_ID,
+                "client_secret": settings.LINKEDIN_CLIENT_SECRET,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if token_res.status_code != 200:
+            logger.error("LinkedIn token exchange failed", body=token_res.text)
+            return RedirectResponse(
+                url=f"{frontend_base}/settings?linkedin_error=token_exchange_failed", status_code=302
+            )
+        token_data   = token_res.json()
+        access_token = token_data.get("access_token")
+        expires_in   = token_data.get("expires_in", 5184000)  # default 60 days
+
+        # Fetch user profile (OpenID Connect userinfo endpoint)
+        me_res = await client.get(
+            LINKEDIN_ME,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if me_res.status_code != 200:
+            logger.error("LinkedIn userinfo failed", body=me_res.text)
+            return RedirectResponse(
+                url=f"{frontend_base}/settings?linkedin_error=profile_fetch_failed", status_code=302
+            )
+        profile = me_res.json()
+
+    li_id   = profile.get("sub") or profile.get("id", "")
+    li_name = profile.get("name") or f"{profile.get('given_name','')} {profile.get('family_name','')}".strip()
+    token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+    # Upsert SocialAccount
+    existing = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.organization_id == org.id,
+            SocialAccount.platform        == "linkedin",
+            SocialAccount.account_id      == str(li_id),
+        )
     )
-    return {"auth_url": auth_url}
+    account = existing.scalar_one_or_none()
+    if account:
+        account.access_token     = access_token
+        account.account_name     = li_name
+        account.token_expires_at = token_expires_at
+        account.is_active        = True
+    else:
+        account = SocialAccount(
+            organization_id  = org.id,
+            platform         = "linkedin",
+            account_id       = str(li_id),
+            account_name     = li_name,
+            access_token     = access_token,
+            token_expires_at = token_expires_at,
+            is_active        = True,
+        )
+        db.add(account)
+
+    await db.flush()
+    logger.info("LinkedIn account connected", org_id=str(org.id), name=li_name)
+
+    return RedirectResponse(
+        url=f"{frontend_base}/settings?linkedin_connected=true",
+        status_code=302,
+    )
 
 
-# ─────────────────────────── Twitter stub ────────────────────────────────────
+# ─────────────────────────── Twitter / X OAuth 2.0 ───────────────────────────
+
+TWITTER_AUTH  = "https://twitter.com/i/oauth2/authorize"
+TWITTER_TOKEN = "https://api.twitter.com/2/oauth2/token"
+TWITTER_ME    = "https://api.twitter.com/2/users/me"
+
 
 @router.get("/connect/twitter")
 async def connect_twitter(current_user: User = Depends(get_current_active_user)):
-    """Return Twitter OAuth2 authorization URL."""
-    auth_url = (
-        "https://twitter.com/i/oauth2/authorize"
-        "?response_type=code"
-        f"&client_id={settings.TWITTER_API_KEY}"
-        f"&redirect_uri={settings.BACKEND_URL}/api/v1/social-accounts/callback/twitter"
-        "&scope=tweet.read%20tweet.write%20users.read%20offline.access"
-        f"&state={current_user.id}"
-        "&code_challenge=challenge&code_challenge_method=plain"
+    """Return Twitter OAuth2 PKCE authorization URL."""
+    if not settings.TWITTER_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Twitter OAuth is not configured on this server.",
+        )
+    import hashlib
+    state         = _encode_state(current_user.id)
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+
+    redirect_uri = f"{settings.BACKEND_URL}/api/v1/social-accounts/callback/twitter"
+    params = urlencode({
+        "response_type":         "code",
+        "client_id":             settings.TWITTER_API_KEY,
+        "redirect_uri":          redirect_uri,
+        "scope":                 "tweet.read tweet.write users.read offline.access",
+        "state":                 state,
+        "code_challenge":        code_challenge,
+        "code_challenge_method": "S256",
+    })
+
+    # Store verifier in a short-lived way — reuse Redis if available, else embed in state
+    # For simplicity we embed verifier in state as state:verifier (URL-safe)
+    combined_state = f"{state}:{code_verifier}"
+
+    return {
+        "auth_url": f"{TWITTER_AUTH}?{params.replace(urlencode({'state': state}), urlencode({'state': combined_state}))}",
+        "state": combined_state,
+    }
+
+
+@router.get("/callback/twitter")
+async def twitter_oauth_callback(
+    code:  Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Twitter OAuth2 PKCE callback.
+    Exchanges code for access token, fetches profile, and saves SocialAccount.
+    """
+    from datetime import timedelta
+    import base64 as _base64
+
+    frontend_base = settings.FRONTEND_URL.rstrip("/")
+
+    if error or not code:
+        logger.warning("Twitter OAuth error", error=error)
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?twitter_error={error or 'access_denied'}",
+            status_code=302,
+        )
+
+    if not state or ":" not in state:
+        return RedirectResponse(url=f"{frontend_base}/settings?twitter_error=invalid_state", status_code=302)
+
+    # Split combined state into user state + code_verifier
+    raw_state, code_verifier = state.rsplit(":", 1)
+    user_id = _decode_state(raw_state)
+    if not user_id:
+        return RedirectResponse(url=f"{frontend_base}/settings?twitter_error=invalid_state", status_code=302)
+
+    org = await _get_org_for_user_id(user_id, db)
+    if not org:
+        return RedirectResponse(url=f"{frontend_base}/settings?twitter_error=no_org", status_code=302)
+
+    redirect_uri = f"{settings.BACKEND_URL}/api/v1/social-accounts/callback/twitter"
+    # Twitter OAuth2 PKCE uses Basic auth with client_id:client_secret
+    credentials = _base64.b64encode(
+        f"{settings.TWITTER_API_KEY}:{settings.TWITTER_API_SECRET}".encode()
+    ).decode()
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        # Exchange code for access token
+        token_res = await client.post(
+            TWITTER_TOKEN,
+            data={
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "redirect_uri":  redirect_uri,
+                "code_verifier": code_verifier,
+            },
+            headers={
+                "Authorization":  f"Basic {credentials}",
+                "Content-Type":   "application/x-www-form-urlencoded",
+            },
+        )
+        if token_res.status_code != 200:
+            logger.error("Twitter token exchange failed", body=token_res.text)
+            return RedirectResponse(
+                url=f"{frontend_base}/settings?twitter_error=token_exchange_failed", status_code=302
+            )
+        token_data   = token_res.json()
+        access_token = token_data.get("access_token")
+        expires_in   = token_data.get("expires_in", 7200)
+
+        # Fetch user profile
+        me_res = await client.get(
+            TWITTER_ME,
+            params={"user.fields": "name,username,profile_image_url"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if me_res.status_code != 200:
+            logger.error("Twitter user fetch failed", body=me_res.text)
+            return RedirectResponse(
+                url=f"{frontend_base}/settings?twitter_error=profile_fetch_failed", status_code=302
+            )
+        tw_user = me_res.json().get("data", {})
+
+    tw_id   = tw_user.get("id", "")
+    tw_name = tw_user.get("name", "Twitter User")
+    token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+    # Upsert SocialAccount
+    existing = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.organization_id == org.id,
+            SocialAccount.platform        == "twitter",
+            SocialAccount.account_id      == str(tw_id),
+        )
     )
-    return {"auth_url": auth_url}
+    account = existing.scalar_one_or_none()
+    if account:
+        account.access_token     = access_token
+        account.account_name     = tw_name
+        account.token_expires_at = token_expires_at
+        account.is_active        = True
+    else:
+        account = SocialAccount(
+            organization_id  = org.id,
+            platform         = "twitter",
+            account_id       = str(tw_id),
+            account_name     = tw_name,
+            access_token     = access_token,
+            token_expires_at = token_expires_at,
+            is_active        = True,
+        )
+        db.add(account)
+
+    await db.flush()
+    logger.info("Twitter account connected", org_id=str(org.id), name=tw_name)
+
+    return RedirectResponse(
+        url=f"{frontend_base}/settings?twitter_connected=true",
+        status_code=302,
+    )

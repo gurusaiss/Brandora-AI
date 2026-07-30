@@ -21,9 +21,11 @@ import {
   ChevronUp,
   Key,
 } from 'lucide-react'
-import { teamApi, authApi, organizationApi, socialAccountsApi, toArray, getApiError } from '@/lib/api'
+import { teamApi, authApi, organizationApi, socialAccountsApi, apiKeyApi, toArray, getApiError } from '@/lib/api'
 import { useAuthStore } from '@/store/auth-store'
 import type { TeamMember } from '@/types'
+
+type ApiKey = { id: string; name: string; key_prefix: string; created_at: string; last_used_at: string | null }
 
 const inputClass =
   'w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors'
@@ -75,11 +77,13 @@ function PlatformBadge({ platform }: { platform: string }) {
 // ── Connected Accounts section ───────────────────────────────────────────────
 function ConnectedAccounts() {
   const queryClient = useQueryClient()
-  const [connectingMeta, setConnectingMeta]   = useState(false)
-  const [showManual, setShowManual]           = useState(false)
-  const [manualToken, setManualToken]         = useState('')
-  const [manualLoading, setManualLoading]     = useState(false)
-  const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
+  const [connectingMeta, setConnectingMeta]         = useState(false)
+  const [connectingLinkedIn, setConnectingLinkedIn] = useState(false)
+  const [connectingTwitter, setConnectingTwitter]   = useState(false)
+  const [showManual, setShowManual]                 = useState(false)
+  const [manualToken, setManualToken]               = useState('')
+  const [manualLoading, setManualLoading]           = useState(false)
+  const [disconnectingId, setDisconnectingId]       = useState<string | null>(null)
 
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['social-accounts'],
@@ -126,6 +130,28 @@ function ConnectedAccounts() {
     } catch (err: any) {
       toast.error(getApiError(err, 'Failed to start Meta OAuth.'))
       setConnectingMeta(false)
+    }
+  }
+
+  const handleConnectLinkedIn = async () => {
+    setConnectingLinkedIn(true)
+    try {
+      const res = await socialAccountsApi.connectLinkedIn()
+      window.location.href = res.data.auth_url
+    } catch (err: any) {
+      toast.error(getApiError(err, 'LinkedIn OAuth not configured on this server.'))
+      setConnectingLinkedIn(false)
+    }
+  }
+
+  const handleConnectTwitter = async () => {
+    setConnectingTwitter(true)
+    try {
+      const res = await socialAccountsApi.connectTwitter()
+      window.location.href = res.data.auth_url
+    } catch (err: any) {
+      toast.error(getApiError(err, 'Twitter OAuth not configured on this server.'))
+      setConnectingTwitter(false)
     }
   }
 
@@ -322,19 +348,54 @@ function ConnectedAccounts() {
         </div>
       )}
 
-      {/* Coming soon chips */}
-      <div className="flex gap-2 flex-wrap pt-1">
-        {['LinkedIn', 'Twitter / X'].map((name) => (
-          <span
-            key={name}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground bg-muted/40"
-          >
-            {name}
-            <span className="bg-muted rounded-full px-1.5 py-0.5 text-[10px] font-semibold">
-              Coming soon
-            </span>
+      {/* LinkedIn connect card */}
+      <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-muted/20">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-[#0077B5] flex items-center justify-center text-white font-bold text-base select-none">in</div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">LinkedIn</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Publish posts to your LinkedIn profile</p>
+          </div>
+        </div>
+        {(accounts ?? []).some((a) => a.platform === 'linkedin') ? (
+          <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+            <CheckCircle2 className="w-4 h-4" /> Connected
           </span>
-        ))}
+        ) : (
+          <button
+            onClick={handleConnectLinkedIn}
+            disabled={connectingLinkedIn}
+            className="flex items-center gap-1.5 h-9 px-4 bg-[#0077B5] hover:bg-[#006199] disabled:opacity-60 text-white text-xs font-semibold rounded-xl transition-colors"
+          >
+            {connectingLinkedIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+            Connect
+          </button>
+        )}
+      </div>
+
+      {/* Twitter / X connect card */}
+      <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-muted/20">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-white font-bold text-base select-none">𝕏</div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Twitter / X</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Post tweets from your X account</p>
+          </div>
+        </div>
+        {(accounts ?? []).some((a) => a.platform === 'twitter') ? (
+          <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+            <CheckCircle2 className="w-4 h-4" /> Connected
+          </span>
+        ) : (
+          <button
+            onClick={handleConnectTwitter}
+            disabled={connectingTwitter}
+            className="flex items-center gap-1.5 h-9 px-4 bg-black hover:bg-zinc-800 disabled:opacity-60 text-white text-xs font-semibold rounded-xl transition-colors"
+          >
+            {connectingTwitter ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+            Connect
+          </button>
+        )}
       </div>
     </div>
   )
@@ -349,6 +410,8 @@ function SettingsPageInner() {
 
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyValue, setNewKeyValue] = useState<string | null>(null)
 
   // Profile / org editing
   const [editingProfile, setEditingProfile] = useState(false)
@@ -387,11 +450,15 @@ function SettingsPageInner() {
     onError: () => toast.error('Failed to save changes'),
   })
 
-  // Handle Meta OAuth callback redirects
+  // Handle OAuth callback redirects (Meta, LinkedIn, Twitter)
   useEffect(() => {
-    const metaConnected = searchParams.get('meta_connected')
-    const metaError     = searchParams.get('meta_error')
-    const count         = searchParams.get('count')
+    const metaConnected      = searchParams.get('meta_connected')
+    const metaError          = searchParams.get('meta_error')
+    const count              = searchParams.get('count')
+    const linkedinConnected  = searchParams.get('linkedin_connected')
+    const linkedinError      = searchParams.get('linkedin_error')
+    const twitterConnected   = searchParams.get('twitter_connected')
+    const twitterError       = searchParams.get('twitter_error')
 
     if (metaConnected === 'true') {
       toast.success(
@@ -401,7 +468,6 @@ function SettingsPageInner() {
         { duration: 5000 },
       )
       queryClient.invalidateQueries({ queryKey: ['social-accounts'] })
-      // Clean up URL params
       router.replace('/settings')
     } else if (metaError) {
       const messages: Record<string, string> = {
@@ -412,6 +478,32 @@ function SettingsPageInner() {
       }
       toast.error(messages[metaError] ?? `Meta error: ${metaError}`, { duration: 6000 })
       router.replace('/settings')
+    } else if (linkedinConnected === 'true') {
+      toast.success('LinkedIn account connected!', { duration: 5000 })
+      queryClient.invalidateQueries({ queryKey: ['social-accounts'] })
+      router.replace('/settings')
+    } else if (linkedinError) {
+      const messages: Record<string, string> = {
+        access_denied:         'LinkedIn connection was cancelled.',
+        token_exchange_failed: 'LinkedIn token exchange failed.',
+        profile_fetch_failed:  'Could not fetch your LinkedIn profile.',
+        invalid_state:         'Security check failed. Try again.',
+      }
+      toast.error(messages[linkedinError] ?? `LinkedIn error: ${linkedinError}`, { duration: 6000 })
+      router.replace('/settings')
+    } else if (twitterConnected === 'true') {
+      toast.success('Twitter / X account connected!', { duration: 5000 })
+      queryClient.invalidateQueries({ queryKey: ['social-accounts'] })
+      router.replace('/settings')
+    } else if (twitterError) {
+      const messages: Record<string, string> = {
+        access_denied:         'Twitter connection was cancelled.',
+        token_exchange_failed: 'Twitter token exchange failed.',
+        profile_fetch_failed:  'Could not fetch your Twitter profile.',
+        invalid_state:         'Security check failed. Try again.',
+      }
+      toast.error(messages[twitterError] ?? `Twitter error: ${twitterError}`, { duration: 6000 })
+      router.replace('/settings')
     }
   }, [searchParams, queryClient, router])
 
@@ -421,6 +513,33 @@ function SettingsPageInner() {
       const res = await teamApi.list()
       return toArray<TeamMember>(res.data)
     },
+  })
+
+  const { data: apiKeys, isLoading: apiKeysLoading } = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: async () => {
+      const res = await apiKeyApi.list()
+      return toArray<ApiKey>(res.data)
+    },
+  })
+
+  const createKeyMutation = useMutation({
+    mutationFn: (name: string) => apiKeyApi.create(name),
+    onSuccess: (res) => {
+      setNewKeyValue(res.data.raw_key ?? res.data.key ?? null)
+      setNewKeyName('')
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+    },
+    onError: () => toast.error('Failed to create API key'),
+  })
+
+  const revokeKeyMutation = useMutation({
+    mutationFn: (id: string) => apiKeyApi.revoke(id),
+    onSuccess: () => {
+      toast.success('API key revoked')
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+    },
+    onError: () => toast.error('Failed to revoke key'),
   })
 
   const inviteMutation = useMutation({
@@ -678,6 +797,91 @@ function SettingsPageInner() {
                 <Mail className="w-4 h-4" />
               )}
               Invite
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── API Keys ────────────────────────────────────────────────────── */}
+      <SectionCard icon={Key} title="API Keys">
+        <p className="text-sm text-muted-foreground -mt-2">
+          Use API keys to access Brandora AI programmatically. Each key is shown only once.
+        </p>
+
+        {/* New key revealed */}
+        {newKeyValue && (
+          <div className="rounded-xl bg-green-50 dark:bg-green-950/30 border border-green-300 dark:border-green-700 p-4 space-y-2">
+            <p className="text-xs font-semibold text-green-800 dark:text-green-300">
+              Copy your new API key — it will only be shown once!
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 font-mono text-xs bg-white dark:bg-black/30 px-3 py-2 rounded-lg border border-green-200 dark:border-green-800 break-all text-green-900 dark:text-green-200">
+                {newKeyValue}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(newKeyValue); toast.success('Copied!') }}
+                className="flex-shrink-0 h-9 px-3 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <button onClick={() => setNewKeyValue(null)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Keys list */}
+        {apiKeysLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => <div key={i} className="h-12 bg-muted rounded-xl animate-pulse" />)}
+          </div>
+        ) : (apiKeys ?? []).length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-3">No API keys yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {(apiKeys ?? []).map((k) => (
+              <div key={k.id} className="flex items-center justify-between px-4 py-2.5 rounded-xl border border-border bg-background hover:bg-muted/30 transition-colors">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{k.name}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{k.key_prefix}••••••••</p>
+                </div>
+                <button
+                  onClick={() => revokeKeyMutation.mutate(k.id)}
+                  disabled={revokeKeyMutation.isPending}
+                  className="p-1.5 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                  title="Revoke key"
+                >
+                  {revokeKeyMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create new key */}
+        <div className="border-t border-border pt-4 space-y-3">
+          <p className="text-sm font-medium text-foreground">Create new API key</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="Key name (e.g. Production App)"
+              className={`flex-1 ${inputClass}`}
+              onKeyDown={(e) => e.key === 'Enter' && newKeyName.trim() && createKeyMutation.mutate(newKeyName.trim())}
+            />
+            <button
+              onClick={() => newKeyName.trim() && createKeyMutation.mutate(newKeyName.trim())}
+              disabled={!newKeyName.trim() || createKeyMutation.isPending}
+              className="flex items-center gap-1.5 h-10 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
+            >
+              {createKeyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+              Create
             </button>
           </div>
         </div>

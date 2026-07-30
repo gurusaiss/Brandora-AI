@@ -352,6 +352,43 @@ async def delete_content(
     await db.flush()
 
 
+@router.delete("/{content_id}/save", response_model=ContentGenerateResponse)
+async def unsave_content(
+    content_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Explicitly unsave a content generation (set is_saved = False)."""
+    org = await _get_org_for_user(current_user, db)
+    result = await db.execute(
+        select(ContentGeneration).where(
+            ContentGeneration.id == content_id,
+            ContentGeneration.organization_id == org.id,
+            ContentGeneration.is_deleted == False,
+        )
+    )
+    gen = result.scalar_one_or_none()
+    if not gen:
+        raise NotFoundError(f"Content {content_id} not found.")
+    gen.is_saved = False
+    await db.flush()
+
+    return ContentGenerateResponse(
+        id=gen.id,
+        platform=gen.platform,
+        generated_content=gen.generated_content,
+        hashtags=gen.hashtags or [],
+        quality_score=gen.quality_score,
+        ai_model_used=gen.ai_model_used,
+        tokens_used=gen.tokens_used,
+        is_saved=gen.is_saved,
+        feedback=gen.feedback,
+        parent_generation_id=gen.parent_generation_id,
+        campaign_id=gen.campaign_id,
+        created_at=gen.created_at,
+    )
+
+
 @router.post("/{content_id}/save", response_model=ContentGenerateResponse)
 async def toggle_save(
     content_id: uuid.UUID,

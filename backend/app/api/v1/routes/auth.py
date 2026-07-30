@@ -229,18 +229,25 @@ async def forgot_password(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Store a password reset token in Redis (TTL 1 h) and log it."""
+    """Store a password reset token in Redis (TTL 1 h) and email it to the user."""
+    from app.services.email_service import send_password_reset_email
+
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
     if user:
         reset_token = secrets.token_urlsafe(32)
         redis_key = f"pwd_reset:{reset_token}"
         await redis.set(redis_key, str(user.id), ex=3600)
-        logger.info(
-            "Password reset token stored",
-            user_id=str(user.id),
-            reset_token=reset_token,  # Remove/email in production
+        # Fire-and-forget — never block the response on email delivery
+        import asyncio
+        asyncio.create_task(
+            send_password_reset_email(
+                to=user.email,
+                reset_token=reset_token,
+                full_name=user.full_name or "",
+            )
         )
+        logger.info("Password reset token created", user_id=str(user.id))
     # Always return 202 to prevent email enumeration
     return {"message": "If the email exists, a reset link has been sent."}
 

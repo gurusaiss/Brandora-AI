@@ -397,6 +397,16 @@ function ResultCard({
 
 // ─── History Card ─────────────────────────────────────────────────────────────
 
+const REPURPOSE_PLATFORMS: Array<{ value: Platform; label: string }> = [
+  { value: 'linkedin',     label: 'LinkedIn' },
+  { value: 'instagram',    label: 'Instagram' },
+  { value: 'twitter',      label: 'Twitter / X' },
+  { value: 'reel_script',  label: 'Reel Script' },
+  { value: 'carousel',     label: 'Carousel' },
+  { value: 'csr_story',    label: 'CSR Story' },
+  { value: 'founder_post', label: 'Founder Post' },
+]
+
 function HistoryCard({
   item, onDelete, isDeleting, isExpanded, onToggleExpand, onUseAgain, historyFilters,
 }: {
@@ -410,6 +420,8 @@ function HistoryCard({
 }) {
   const [copied, setCopied] = useState(false)
   const [isSaved, setIsSaved] = useState(item.is_saved)
+  const [showRepurpose, setShowRepurpose] = useState(false)
+  const [repurposePlatforms, setRepurposePlatforms] = useState<Platform[]>([])
   const queryClient = useQueryClient()
 
   const saveMutation = useMutation({
@@ -419,6 +431,25 @@ function HistoryCard({
     onSettled: () => queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.historyAll }),
     onSuccess: () => toast.success(isSaved ? 'Removed' : 'Saved! ✓'),
   })
+
+  const repurposeMutation = useMutation({
+    mutationFn: (platforms: Platform[]) =>
+      contentApi.repurpose({ content_id: item.id, target_platforms: platforms }).then((r) => r.data),
+    onSuccess: (data) => {
+      const count = data?.repurposed?.length ?? 0
+      toast.success(`Repurposed into ${count} format${count !== 1 ? 's' : ''}! Check Content Studio.`)
+      setShowRepurpose(false)
+      setRepurposePlatforms([])
+      queryClient.invalidateQueries({ queryKey: CONTENT_KEYS.historyAll })
+    },
+    onError: () => toast.error('Failed to repurpose content'),
+  })
+
+  const toggleRepurposePlatform = (p: Platform) => {
+    setRepurposePlatforms((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+    )
+  }
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(item.generated_content)
@@ -500,12 +531,63 @@ function HistoryCard({
         </button>
 
         <button
+          onClick={() => setShowRepurpose((v) => !v)}
+          className={cn(
+            'h-7 px-2.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors',
+            showRepurpose
+              ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+          )}
+        >
+          <Zap className="w-3.5 h-3.5" />Repurpose
+        </button>
+
+        <button
           onClick={onDelete} disabled={isDeleting}
           className="ml-auto h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-40"
         >
           {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
         </button>
       </div>
+
+      {/* Repurpose panel */}
+      {showRepurpose && (
+        <div className="px-4 pb-4 space-y-3">
+          <div className="rounded-xl bg-muted/40 border border-border p-4 space-y-3">
+            <p className="text-xs font-semibold text-foreground">Repurpose to other formats</p>
+            <div className="flex flex-wrap gap-1.5">
+              {REPURPOSE_PLATFORMS.filter((p) => p.value !== item.platform).map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => toggleRepurposePlatform(value)}
+                  className={cn(
+                    'h-7 px-2.5 rounded-lg text-xs font-medium border transition-colors',
+                    repurposePlatforms.includes(value)
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'bg-background text-foreground border-border hover:bg-muted',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => repurposeMutation.mutate(repurposePlatforms)}
+                disabled={repurposePlatforms.length === 0 || repurposeMutation.isPending}
+                className="h-8 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
+              >
+                {repurposeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                Repurpose ({repurposePlatforms.length})
+              </button>
+              <button onClick={() => { setShowRepurpose(false); setRepurposePlatforms([]) }}
+                className="h-8 px-3 rounded-lg text-xs border border-border hover:bg-muted transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

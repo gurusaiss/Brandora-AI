@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Save, Loader2, Building2, Volume2, User, Globe2, BookOpen } from 'lucide-react'
+import { Save, Loader2, Building2, Volume2, User, Globe2, BookOpen, Wand2 } from 'lucide-react'
 import { brandProfileApi } from '@/lib/api'
 import type { BrandProfile } from '@/types'
 
@@ -53,6 +53,8 @@ function SectionCard({
 
 export default function BrandProfilePage() {
   const queryClient = useQueryClient()
+  const [analyzeText, setAnalyzeText] = useState('')
+  const [showAnalyze, setShowAnalyze] = useState(false)
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['brand-profile'],
@@ -127,6 +129,26 @@ export default function BrandProfilePage() {
       toast.success('Brand profile saved!')
     },
     onError: () => toast.error('Failed to save. Please try again.'),
+  })
+
+  const analyzeMutation = useMutation({
+    mutationFn: async (samplePosts: string[]) => {
+      const res = await brandProfileApi.analyzeVoice({ sample_posts: samplePosts })
+      return res.data
+    },
+    onSuccess: (data) => {
+      // Apply analyzed tone values to form
+      if (data?.tone_professional != null) setForm((f) => ({ ...f, tone_professional: data.tone_professional }))
+      if (data?.tone_warm != null) setForm((f) => ({ ...f, tone_warm: data.tone_warm }))
+      if (data?.tone_inspirational != null) setForm((f) => ({ ...f, tone_inspirational: data.tone_inspirational }))
+      if (data?.tone_educational != null) setForm((f) => ({ ...f, tone_educational: data.tone_educational }))
+      if (data?.tone_urgent != null) setForm((f) => ({ ...f, tone_urgent: data.tone_urgent }))
+      queryClient.invalidateQueries({ queryKey: ['brand-profile'] })
+      toast.success('Voice analyzed! Sliders updated — save to apply.')
+      setShowAnalyze(false)
+      setAnalyzeText('')
+    },
+    onError: () => toast.error('Voice analysis failed. Please try again.'),
   })
 
   const set = (key: keyof BrandProfile, value: unknown) =>
@@ -282,9 +304,68 @@ export default function BrandProfilePage() {
 
       {/* Section: Brand Voice */}
       <SectionCard icon={Volume2} title="Brand Voice">
-        <p className="text-sm text-muted-foreground -mt-2">
-          Rate each dimension 1–10. AI will mirror these settings when generating content.
-        </p>
+        <div className="flex items-center justify-between -mt-2">
+          <p className="text-sm text-muted-foreground">
+            Rate each dimension 1–10. AI will mirror these settings when generating content.
+          </p>
+          <button
+            onClick={() => setShowAnalyze((v) => !v)}
+            className="flex-shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-xl border border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 text-xs font-semibold hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors ml-4"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            Analyze Voice
+          </button>
+        </div>
+
+        {/* AI voice analysis panel */}
+        {showAnalyze && (
+          <div className="rounded-xl bg-muted/40 border border-border p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Paste 2–5 sample posts or captions</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                AI will analyze the tone and auto-set the sliders below.
+              </p>
+            </div>
+            <textarea
+              value={analyzeText}
+              onChange={(e) => setAnalyzeText(e.target.value)}
+              rows={5}
+              placeholder={`Paste your existing social media posts here, one per paragraph…\n\nExample:\n"Today we reached 10,000 children with clean water access…"`}
+              className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const posts = analyzeText
+                    .split(/\n{2,}/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                  if (posts.length === 0) {
+                    toast.error('Please paste at least one sample post.')
+                    return
+                  }
+                  analyzeMutation.mutate(posts)
+                }}
+                disabled={!analyzeText.trim() || analyzeMutation.isPending}
+                className="flex items-center gap-1.5 h-9 px-4 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+              >
+                {analyzeMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5" />
+                )}
+                {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze'}
+              </button>
+              <button
+                onClick={() => { setShowAnalyze(false); setAnalyzeText('') }}
+                className="h-9 px-3 rounded-xl border border-border text-xs text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-5">
           {TONE_DIMENSIONS.map(({ key, label }) => {
             const value = Number(form[key as ToneDimensionKey] ?? 7)

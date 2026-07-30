@@ -165,6 +165,17 @@ async def invite_member(
         existing.is_active = True
         existing.role = payload.role
         await db.flush()
+        import asyncio
+        from app.services.email_service import send_team_invite_email
+        asyncio.create_task(
+            send_team_invite_email(
+                to=invitee.email,
+                inviter_name=current_user.full_name or current_user.email,
+                org_name=org.name,
+                role=payload.role,
+                invitee_name=invitee.full_name or "",
+            )
+        )
         return {"message": "Team member reactivated successfully.", "user_id": str(invitee.id)}
 
     # Create a new membership
@@ -177,6 +188,19 @@ async def invite_member(
     )
     db.add(new_membership)
     await db.flush()
+
+    # Send notification email (fire-and-forget)
+    import asyncio
+    from app.services.email_service import send_team_invite_email
+    asyncio.create_task(
+        send_team_invite_email(
+            to=invitee.email,
+            inviter_name=current_user.full_name or current_user.email,
+            org_name=org.name,
+            role=payload.role,
+            invitee_name=invitee.full_name or "",
+        )
+    )
 
     return {"message": "Team member invited successfully.", "user_id": str(invitee.id)}
 

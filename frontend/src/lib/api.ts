@@ -171,7 +171,7 @@ export const contentApi = {
     api.get('/content/history', { params }),
   getById: (id: string) => api.get(`/content/${id}`),
   save: (id: string) => api.post(`/content/${id}/save`),
-  unsave: (id: string) => api.delete(`/content/${id}/save`),
+  unsave: (id: string) => api.delete(`/content/${id}/save`),  // explicit DELETE endpoint
   feedback: (id: string, feedback: 'thumbs_up' | 'thumbs_down') =>
     api.post(`/content/${id}/feedback`, { feedback }),
   delete: (id: string) => api.delete(`/content/${id}`),
@@ -230,8 +230,8 @@ export const campaignApi = {
 // ─── Festivals ────────────────────────────────────────────────────────────────
 export const festivalApi = {
   list: () => api.get('/festivals'),
-  upcoming: (limit?: number) =>
-    api.get('/festivals/upcoming', { params: { limit } }),
+  upcoming: (days?: number) =>
+    api.get('/festivals/upcoming', { params: { days } }),
   generateContent: (festivalId: string, data: Record<string, unknown>) =>
     api.post(`/festivals/${festivalId}/generate-content`, data),
 }
