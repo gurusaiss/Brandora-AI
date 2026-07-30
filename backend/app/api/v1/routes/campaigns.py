@@ -60,6 +60,7 @@ class CampaignResponse(BaseModel):
     platforms: List[str] = Field(default_factory=list)
     total_posts: int
     published_posts: int
+    is_scheduled: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -370,7 +371,9 @@ async def delete_campaign(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete a campaign by setting its status to archived."""
+    """Soft-delete a campaign by setting its status to archived.
+    Also cancels any pending scheduled posts so the scheduler skips them."""
+    from sqlalchemy import update as sa_update
     org = await _get_user_org(current_user, db)
     result = await db.execute(
         select(Campaign).where(
@@ -382,6 +385,15 @@ async def delete_campaign(
     if not campaign:
         raise NotFoundError(f"Campaign {campaign_id} not found.")
     campaign.status = "archived"
+    # Cancel pending posts so the scheduler doesn't publish them after deletion
+    await db.execute(
+        sa_update(CampaignPost)
+        .where(
+            CampaignPost.campaign_id == campaign_id,
+            CampaignPost.status.in_(["scheduled", "generating", "retrying"]),
+        )
+        .values(status="failed", failure_reason="Campaign archived")
+    )
     await db.flush()
 
 

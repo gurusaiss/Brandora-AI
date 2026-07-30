@@ -339,7 +339,18 @@ async def process_campaign_posts() -> None:
                     select(Campaign).where(Campaign.id == post.campaign_id)
                 )).scalar_one_or_none()
 
-                if not campaign or not campaign.social_account_id:
+                if not campaign:
+                    post.status         = "failed"
+                    post.failure_reason = "Campaign not found"
+                    continue
+
+                # Skip posts whose campaign has been archived or completed
+                if campaign.status in ("archived", "completed", "cancelled"):
+                    post.status         = "failed"
+                    post.failure_reason = f"Campaign is {campaign.status}"
+                    continue
+
+                if not campaign.social_account_id:
                     post.status         = "failed"
                     post.failure_reason = "No social account linked"
                     continue
