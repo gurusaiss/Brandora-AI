@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -22,6 +22,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [fbLoading, setFbLoading]       = useState(false)
   const loginMutation = useLogin()
+
+  // Ping the backend on mount so Render wakes from idle before form submit
+  useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:8000'
+    fetch(`${base}/health`, { method: 'GET' }).catch(() => {/* ignore */})
+  }, [])
 
   const handleFacebookLogin = async () => {
     setFbLoading(true)
