@@ -6,10 +6,20 @@ Jobs:
   2. process_campaign_posts     — every 5 min: publish posts that are ready
   3. retry_failed_posts         — every 15 min: retry failed posts up to max_retries
   4. run_auto_campaigns         — every 5 min: legacy simple auto-campaigns
+
+Design rule: every scheduler function uses THREE phases so that no DB connection
+is held open while making external HTTP calls (Groq, Meta Graph, image APIs):
+
+  Phase 1 — short DB session: load data, mark in-progress, commit, close session
+  Phase 2 — HTTP calls: no DB session open at all
+  Phase 3 — short DB session: write results, commit, close session
 """
 import calendar
 import logging
+import uuid as _uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -25,6 +35,8 @@ scheduler = AsyncIOScheduler(
     timezone="UTC",
 )
 
+
+# ── Schedule helpers ──────────────────────────────────────────────────────────
 
 def _next_run(frequency: str, post_time: str, post_days: list, from_utc: datetime) -> datetime:
     try:
@@ -64,6 +76,20 @@ def _next_run(frequency: str, post_time: str, post_days: list, from_utc: datetim
     return (today_at + timedelta(days=1)).astimezone(_UTC)
 
 
+# ── Lightweight duck-type for _post_to_meta ───────────────────────────────────
+
+class _MockSA:
+    """Minimal duck-type of SocialAccount, used outside any DB session."""
+    __slots__ = ("platform", "account_id", "access_token")
+
+    def __init__(self, platform: str, account_id: str, access_token: str) -> None:
+        self.platform     = platform
+        self.account_id   = account_id
+        self.access_token = access_token
+
+
+# ── Meta posting helper ───────────────────────────────────────────────────────
+
 async def _post_to_meta(account, content: str, image_url: str | None) -> str:
     import httpx
     GRAPH = "https://graph.facebook.com/v19.0"
@@ -84,32 +110,37 @@ async def _post_to_meta(account, content: str, image_url: str | None) -> str:
         if account.platform == "instagram":
             if not image_url:
                 raise RuntimeError("Instagram requires an image_url")
-            c = await client.post(f"{GRAPH}/{account.account_id}/media",
-                                  data={"image_url": image_url, "caption": content,
-                                        "access_token": token})
+            c = await client.post(
+                f"{GRAPH}/{account.account_id}/media",
+                data={"image_url": image_url, "caption": content, "access_token": token},
+            )
             if c.status_code != 200:
                 raise RuntimeError(f"IG container: {c.json().get('error', {}).get('message', c.text)}")
             media_id = c.json().get("id")
             if not media_id:
                 raise RuntimeError(f"IG container response missing id: {c.json()}")
 
-            # Poll until container is FINISHED before publishing
+            # Poll until container is FINISHED (Meta processes containers async)
             import asyncio as _asyncio
             for _ in range(10):
                 await _asyncio.sleep(2)
-                st = await client.get(f"{GRAPH}/{media_id}",
-                                      params={"fields": "status_code,status", "access_token": token})
+                st = await client.get(
+                    f"{GRAPH}/{media_id}",
+                    params={"fields": "status_code,status", "access_token": token},
+                )
                 if st.status_code == 200:
                     sc = st.json().get("status_code", "")
                     if sc == "FINISHED":
                         break
                     if sc in ("ERROR", "EXPIRED"):
-                        raise RuntimeError(f"IG container processing failed: {st.json().get('status', sc)}")
+                        raise RuntimeError(f"IG container failed: {st.json().get('status', sc)}")
             else:
                 raise RuntimeError("IG container timed out waiting for FINISHED status")
 
-            p = await client.post(f"{GRAPH}/{account.account_id}/media_publish",
-                                  data={"creation_id": media_id, "access_token": token})
+            p = await client.post(
+                f"{GRAPH}/{account.account_id}/media_publish",
+                data={"creation_id": media_id, "access_token": token},
+            )
             if p.status_code != 200:
                 raise RuntimeError(f"IG publish: {p.json().get('error', {}).get('message', p.text)}")
             return p.json().get("id", "")
@@ -117,11 +148,38 @@ async def _post_to_meta(account, content: str, image_url: str | None) -> str:
     raise RuntimeError(f"Unsupported platform: {account.platform}")
 
 
+# ── Job 1: generate content for upcoming posts ────────────────────────────────
+
+@dataclass
+class _ContentJob:
+    post_id:        _uuid.UUID
+    campaign_id:    _uuid.UUID
+    campaign:       Any          # detached Campaign ORM — simple attrs still accessible
+    platform:       str
+    post_index:     int
+    total_posts:    int
+    generate_images: bool
+
+
+@dataclass
+class _ContentResult:
+    post_id:      _uuid.UUID
+    campaign_id:  _uuid.UUID
+    content:      str = ""
+    hashtags:     list = field(default_factory=list)
+    image_url:    Optional[str] = None
+    image_prompt: Optional[str] = None
+    image_model:  Optional[str] = None
+    error:        Optional[str] = None
+
+
 async def generate_upcoming_content() -> None:
     from sqlalchemy import and_, select
     from app.core.database import async_session_factory
     from app.schemas.campaign import Campaign, CampaignImage, CampaignPost
 
+    # ── Phase 1: load posts, mark generating ─────────────────────────────────
+    jobs: list[_ContentJob] = []
     try:
         async with async_session_factory() as db:
             now     = datetime.now(_UTC)
@@ -141,56 +199,113 @@ async def generate_upcoming_content() -> None:
             if not posts:
                 return
 
-            from app.services.campaign_engine import generate_post_content
             logger.info("Generating content for %d upcoming posts", len(posts))
 
             for post in posts:
-                try:
-                    post.status = "generating"
-                    await db.flush()
+                campaign = (await db.execute(
+                    select(Campaign).where(Campaign.id == post.campaign_id)
+                )).scalar_one_or_none()
+                if not campaign:
+                    post.status = "failed"
+                    post.failure_reason = "Campaign not found"
+                    continue
 
-                    campaign = (await db.execute(
-                        select(Campaign).where(Campaign.id == post.campaign_id)
-                    )).scalar_one_or_none()
-                    if not campaign:
-                        post.status = "failed"
-                        post.failure_reason = "Campaign not found"
-                        continue
+                all_posts = (await db.execute(
+                    select(CampaignPost).where(CampaignPost.campaign_id == campaign.id)
+                )).scalars().all()
+                post_index = next((i for i, p in enumerate(all_posts) if p.id == post.id), 0)
 
-                    all_posts = (await db.execute(
-                        select(CampaignPost).where(CampaignPost.campaign_id == campaign.id)
-                    )).scalars().all()
-                    post_index = next((i for i, p in enumerate(all_posts) if p.id == post.id), 0)
-
-                    content, hashtags = await generate_post_content(
-                        campaign, post.platform, post_index, len(all_posts)
-                    )
-                    post.content  = content
-                    post.hashtags = hashtags
-                    post.status   = "scheduled"
-
-                    if campaign.generate_images:
-                        from app.services.image_generation import generate_campaign_image
-                        img_url, prompt, model = await generate_campaign_image(
-                            campaign_id=str(campaign.id), post_id=str(post.id),
-                            campaign_name=campaign.name,
-                            campaign_goal=campaign.campaign_goal or campaign.name,
-                            topic=campaign.topic or campaign.name,
-                            platform=post.platform, keywords=campaign.keywords,
-                        )
-                        post.image_url = img_url
-                        db.add(CampaignImage(
-                            campaign_id=campaign.id, post_id=post.id,
-                            image_url=img_url, prompt_used=prompt, model_used=model,
-                        ))
-                except Exception as exc:
-                    logger.error("Content gen failed post %s: %s", post.id, exc)
-                    post.status = "scheduled"
-                    post.failure_reason = str(exc)[:300]
+                post.status = "generating"
+                jobs.append(_ContentJob(
+                    post_id=post.id, campaign_id=campaign.id, campaign=campaign,
+                    platform=post.platform, post_index=post_index,
+                    total_posts=len(all_posts), generate_images=campaign.generate_images,
+                ))
 
             await db.commit()
     except Exception as exc:
-        logger.error("generate_upcoming_content error: %s", exc, exc_info=True)
+        logger.error("generate_upcoming_content load error: %s", exc, exc_info=True)
+        return
+
+    if not jobs:
+        return
+
+    # ── Phase 2: AI generation (no DB session held) ───────────────────────────
+    from app.services.campaign_engine import generate_post_content
+
+    results: list[_ContentResult] = []
+    for job in jobs:
+        res = _ContentResult(post_id=job.post_id, campaign_id=job.campaign_id)
+        try:
+            content, hashtags = await generate_post_content(
+                job.campaign, job.platform, job.post_index, job.total_posts
+            )
+            res.content  = content
+            res.hashtags = hashtags
+
+            if job.generate_images:
+                try:
+                    from app.services.image_generation import generate_campaign_image
+                    img_url, prompt, model = await generate_campaign_image(
+                        campaign_id=str(job.campaign_id), post_id=str(job.post_id),
+                        campaign_name=job.campaign.name,
+                        campaign_goal=job.campaign.campaign_goal or job.campaign.name,
+                        topic=job.campaign.topic or job.campaign.name,
+                        platform=job.platform, keywords=job.campaign.keywords,
+                    )
+                    res.image_url    = img_url
+                    res.image_prompt = prompt
+                    res.image_model  = model
+                except Exception as img_exc:
+                    logger.warning("Image gen failed post %s: %s", job.post_id, img_exc)
+        except Exception as exc:
+            logger.error("Content gen failed post %s: %s", job.post_id, exc)
+            res.error = str(exc)[:300]
+        results.append(res)
+
+    # ── Phase 3: write results ────────────────────────────────────────────────
+    try:
+        async with async_session_factory() as db:
+            for res in results:
+                post = (await db.execute(
+                    select(CampaignPost).where(CampaignPost.id == res.post_id)
+                )).scalar_one_or_none()
+                if not post:
+                    continue
+
+                if res.error:
+                    post.status         = "scheduled"   # reset so it retries next hour
+                    post.failure_reason = res.error
+                else:
+                    post.content  = res.content
+                    post.hashtags = res.hashtags
+                    post.status   = "scheduled"
+                    if res.image_url:
+                        post.image_url = res.image_url
+                        db.add(CampaignImage(
+                            campaign_id=res.campaign_id, post_id=res.post_id,
+                            image_url=res.image_url, prompt_used=res.image_prompt,
+                            model_used=res.image_model or "pollinations",
+                        ))
+
+            await db.commit()
+    except Exception as exc:
+        logger.error("generate_upcoming_content write error: %s", exc, exc_info=True)
+
+
+# ── Job 2: publish scheduled posts ───────────────────────────────────────────
+
+@dataclass
+class _PostJob:
+    post_id:      _uuid.UUID
+    campaign_id:  _uuid.UUID
+    content:      str
+    image_url:    Optional[str]
+    platform:     str
+    account_id:   str
+    access_token: str
+    retry_count:  int
+    max_retries:  int
 
 
 async def process_campaign_posts() -> None:
@@ -198,6 +313,8 @@ async def process_campaign_posts() -> None:
     from app.core.database import async_session_factory
     from app.schemas.campaign import Campaign, CampaignPost, SocialAccount
 
+    # ── Phase 1: load posts, mark publishing ─────────────────────────────────
+    jobs: list[_PostJob] = []
     try:
         async with async_session_factory() as db:
             now = datetime.now(_UTC)
@@ -218,44 +335,86 @@ async def process_campaign_posts() -> None:
             logger.info("Publishing %d due posts", len(posts))
 
             for post in posts:
-                try:
-                    post.status = "publishing"
-                    await db.flush()
+                campaign = (await db.execute(
+                    select(Campaign).where(Campaign.id == post.campaign_id)
+                )).scalar_one_or_none()
 
-                    campaign = (await db.execute(
-                        select(Campaign).where(Campaign.id == post.campaign_id)
-                    )).scalar_one_or_none()
+                if not campaign or not campaign.social_account_id:
+                    post.status         = "failed"
+                    post.failure_reason = "No social account linked"
+                    continue
 
-                    if not campaign or not campaign.social_account_id:
-                        post.status = "failed"
-                        post.failure_reason = "No social account linked"
-                        continue
+                sa = (await db.execute(
+                    select(SocialAccount).where(SocialAccount.id == campaign.social_account_id)
+                )).scalar_one_or_none()
 
-                    sa = (await db.execute(
-                        select(SocialAccount).where(SocialAccount.id == campaign.social_account_id)
-                    )).scalar_one_or_none()
+                if not sa or not sa.is_active:
+                    post.status         = "failed"
+                    post.failure_reason = "Social account inactive"
+                    continue
 
-                    if not sa or not sa.is_active:
-                        post.status = "failed"
-                        post.failure_reason = "Social account inactive"
-                        continue
-
-                    platform_id = await _post_to_meta(sa, post.content, post.image_url)
-                    post.status           = "published"
-                    post.published_at     = now
-                    post.platform_post_id = platform_id
-                    campaign.published_posts = (campaign.published_posts or 0) + 1
-
-                except Exception as exc:
-                    logger.error("Publish failed post %s: %s", post.id, exc)
-                    post.retry_count    = (post.retry_count or 0) + 1
-                    post.failure_reason = str(exc)[:500]
-                    post.status = "failed" if post.retry_count >= post.max_retries else "retrying"
+                post.status = "publishing"
+                jobs.append(_PostJob(
+                    post_id=post.id, campaign_id=campaign.id,
+                    content=post.content, image_url=post.image_url,
+                    platform=sa.platform, account_id=sa.account_id,
+                    access_token=sa.access_token,
+                    retry_count=post.retry_count or 0,
+                    max_retries=post.max_retries or 3,
+                ))
 
             await db.commit()
     except Exception as exc:
-        logger.error("process_campaign_posts error: %s", exc, exc_info=True)
+        logger.error("process_campaign_posts load error: %s", exc, exc_info=True)
+        return
 
+    if not jobs:
+        return
+
+    # ── Phase 2: HTTP calls (no DB session open) ──────────────────────────────
+    now = datetime.now(_UTC)
+    outcomes: list[tuple] = []  # (post_id, campaign_id, ok, platform_id_or_err, retry_count)
+    for job in jobs:
+        try:
+            pid = await _post_to_meta(
+                _MockSA(job.platform, job.account_id, job.access_token),
+                job.content, job.image_url,
+            )
+            outcomes.append((job.post_id, job.campaign_id, True, pid, job.retry_count))
+        except Exception as exc:
+            logger.error("Publish failed post %s: %s", job.post_id, exc)
+            outcomes.append((job.post_id, job.campaign_id, False, str(exc)[:500], job.retry_count + 1))
+
+    # ── Phase 3: write results ────────────────────────────────────────────────
+    try:
+        async with async_session_factory() as db:
+            for post_id, campaign_id, ok, payload, retry_count in outcomes:
+                post = (await db.execute(
+                    select(CampaignPost).where(CampaignPost.id == post_id)
+                )).scalar_one_or_none()
+                if not post:
+                    continue
+
+                if ok:
+                    post.status           = "published"
+                    post.published_at     = now
+                    post.platform_post_id = payload
+                    campaign = (await db.execute(
+                        select(Campaign).where(Campaign.id == campaign_id)
+                    )).scalar_one_or_none()
+                    if campaign:
+                        campaign.published_posts = (campaign.published_posts or 0) + 1
+                else:
+                    post.retry_count    = retry_count
+                    post.failure_reason = payload
+                    post.status = "failed" if retry_count >= (post.max_retries or 3) else "retrying"
+
+            await db.commit()
+    except Exception as exc:
+        logger.error("process_campaign_posts write error: %s", exc, exc_info=True)
+
+
+# ── Job 3: reset retrying posts ───────────────────────────────────────────────
 
 async def retry_failed_posts() -> None:
     from sqlalchemy import and_, select
@@ -266,8 +425,10 @@ async def retry_failed_posts() -> None:
         async with async_session_factory() as db:
             result = await db.execute(
                 select(CampaignPost).where(
-                    and_(CampaignPost.status == "retrying",
-                         CampaignPost.retry_count < CampaignPost.max_retries)
+                    and_(
+                        CampaignPost.status == "retrying",
+                        CampaignPost.retry_count < CampaignPost.max_retries,
+                    )
                 ).limit(20)
             )
             posts = result.scalars().all()
@@ -280,20 +441,58 @@ async def retry_failed_posts() -> None:
         logger.error("retry_failed_posts error: %s", exc)
 
 
+# ── Job 4: run simple auto-campaigns ─────────────────────────────────────────
+
+@dataclass
+class _AutoJob:
+    campaign_id:    _uuid.UUID
+    campaign:       Any          # detached Campaign ORM — simple attrs still accessible
+    frequency:      str
+    post_time:      str
+    post_days:      list
+    platform:       str
+    account_id:     str
+    access_token:   str
+    published_posts: int
+    total_posts:    int
+    image_url:      Optional[str]
+
+
+@dataclass
+class _AutoResult:
+    campaign_id:    _uuid.UUID
+    frequency:      str
+    post_time:      str
+    post_days:      list
+    platform:       str
+    ok:             bool
+    platform_id:    str = ""
+    content:        str = ""
+    hashtags:       list = field(default_factory=list)
+    error:          str = ""
+
+
 async def run_auto_campaigns() -> None:
     from sqlalchemy import and_, select
     from app.core.database import async_session_factory
     from app.schemas.campaign import Campaign, CampaignPost, SocialAccount
     from app.services.campaign_engine import generate_post_content
 
+    now = datetime.now(_UTC)
+
+    # ── Phase 1: load due campaigns ───────────────────────────────────────────
+    jobs: list[_AutoJob] = []
     try:
         async with async_session_factory() as db:
-            now = datetime.now(_UTC)
             result = await db.execute(
                 select(Campaign).where(
-                    and_(Campaign.is_scheduled == True, Campaign.status == "active",
-                         Campaign.next_run_at != None, Campaign.next_run_at <= now,
-                         Campaign.social_account_id != None)
+                    and_(
+                        Campaign.is_scheduled == True,
+                        Campaign.status == "active",
+                        Campaign.next_run_at != None,
+                        Campaign.next_run_at <= now,
+                        Campaign.social_account_id != None,
+                    )
                 ).limit(10)
             )
             campaigns = result.scalars().all()
@@ -303,49 +502,98 @@ async def run_auto_campaigns() -> None:
             logger.info("Auto-campaigns due: %d", len(campaigns))
 
             for campaign in campaigns:
-                try:
-                    sa = (await db.execute(
-                        select(SocialAccount).where(SocialAccount.id == campaign.social_account_id)
-                    )).scalar_one_or_none()
+                sa = (await db.execute(
+                    select(SocialAccount).where(SocialAccount.id == campaign.social_account_id)
+                )).scalar_one_or_none()
 
-                    if not sa or not sa.is_active:
-                        campaign.next_run_at = _next_run(
-                            campaign.frequency, campaign.post_time, campaign.post_days or [], now
-                        )
-                        continue
-
-                    content, hashtags = await generate_post_content(
-                        campaign, sa.platform, campaign.published_posts or 0, campaign.total_posts or 999
+                if not sa or not sa.is_active:
+                    # Advance schedule even if SA is inactive
+                    campaign.next_run_at = _next_run(
+                        campaign.frequency, campaign.post_time, campaign.post_days or [], now
                     )
-                    platform_id = await _post_to_meta(sa, content, campaign.image_url)
+                    continue
 
+                jobs.append(_AutoJob(
+                    campaign_id=campaign.id, campaign=campaign,
+                    frequency=campaign.frequency, post_time=campaign.post_time,
+                    post_days=campaign.post_days or [],
+                    platform=sa.platform, account_id=sa.account_id,
+                    access_token=sa.access_token,
+                    published_posts=campaign.published_posts or 0,
+                    total_posts=campaign.total_posts or 999,
+                    image_url=campaign.image_url,
+                ))
+
+            await db.commit()
+    except Exception as exc:
+        logger.error("run_auto_campaigns load error: %s", exc, exc_info=True)
+        return
+
+    if not jobs:
+        return
+
+    # ── Phase 2: generate content + post (no DB session) ─────────────────────
+    auto_results: list[_AutoResult] = []
+    for job in jobs:
+        res = _AutoResult(
+            campaign_id=job.campaign_id, frequency=job.frequency,
+            post_time=job.post_time, post_days=job.post_days,
+            platform=job.platform, ok=False,
+        )
+        try:
+            content, hashtags = await generate_post_content(
+                job.campaign, job.platform, job.published_posts, job.total_posts
+            )
+            pid = await _post_to_meta(
+                _MockSA(job.platform, job.account_id, job.access_token),
+                content, job.image_url,
+            )
+            res.ok        = True
+            res.platform_id = pid
+            res.content   = content
+            res.hashtags  = hashtags
+        except Exception as exc:
+            logger.error("Auto-campaign %s failed: %s", job.campaign_id, exc)
+            res.error = str(exc)[:500]
+        auto_results.append(res)
+
+    # ── Phase 3: persist results ───────────────────────────────────────────────
+    now = datetime.now(_UTC)
+    try:
+        async with async_session_factory() as db:
+            for res in auto_results:
+                campaign = (await db.execute(
+                    select(Campaign).where(Campaign.id == res.campaign_id)
+                )).scalar_one_or_none()
+                if not campaign:
+                    continue
+
+                if res.ok:
                     db.add(CampaignPost(
-                        campaign_id=campaign.id, platform=sa.platform,
-                        content=content, hashtags=hashtags,
-                        status="published", published_at=now, platform_post_id=platform_id,
+                        campaign_id=campaign.id, platform=res.platform,
+                        content=res.content, hashtags=res.hashtags,
+                        status="published", published_at=now, platform_post_id=res.platform_id,
                         sequence_order=(campaign.published_posts or 0) + 1,
                     ))
                     campaign.published_posts = (campaign.published_posts or 0) + 1
                     campaign.total_posts     = (campaign.total_posts or 0) + 1
                     campaign.last_run_at     = now
-                    campaign.next_run_at     = _next_run(
-                        campaign.frequency, campaign.post_time, campaign.post_days or [], now
-                    )
-                except Exception as exc:
-                    logger.error("Auto-campaign %s failed: %s", campaign.id, exc)
+                else:
                     db.add(CampaignPost(
-                        campaign_id=campaign.id, platform="unknown",
-                        content=f"[Failed: {str(exc)[:200]}]",
-                        status="failed", failure_reason=str(exc)[:500],
+                        campaign_id=campaign.id, platform=res.platform,
+                        content=f"[Failed: {res.error[:200]}]" if res.error else "[Failed]",
+                        status="failed",
+                        failure_reason=res.error[:500] if res.error else "Unknown error",
                     ))
-                    campaign.next_run_at = _next_run(
-                        campaign.frequency, campaign.post_time, campaign.post_days or [], now
-                    )
+
+                campaign.next_run_at = _next_run(res.frequency, res.post_time, res.post_days, now)
 
             await db.commit()
     except Exception as exc:
-        logger.error("run_auto_campaigns error: %s", exc, exc_info=True)
+        logger.error("run_auto_campaigns write error: %s", exc, exc_info=True)
 
+
+# ── Scheduler init ────────────────────────────────────────────────────────────
 
 def init_scheduler() -> None:
     scheduler.add_job(generate_upcoming_content, trigger="interval", hours=1,

@@ -12,7 +12,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 
 # Detect transaction pooler by port (6543) or explicit flag
-_is_transaction_pooler = ":6543/" in settings.DATABASE_URL
+_is_transaction_pooler = ":6543/" in str(settings.DATABASE_URL)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -21,8 +21,13 @@ engine = create_async_engine(
     # the pool server-side; driver-side pooling causes "prepared statement
     # already exists" errors.
     poolclass=NullPool if _is_transaction_pooler else None,
-    # Disable asyncpg prepared-statement cache for transaction pooler
-    connect_args={"statement_cache_size": 0, "server_settings": {"application_name": "brandora"}} if _is_transaction_pooler else {},
+    # statement_cache_size=0 is applied unconditionally: asyncpg's prepared-
+    # statement cache conflicts with PgBouncer regardless of which pooler port
+    # is used, and has no downside on a direct connection either.
+    connect_args={
+        "statement_cache_size": 0,
+        "server_settings": {"application_name": "brandora"},
+    },
     # These only apply when NOT using NullPool
     **({} if _is_transaction_pooler else {
         "pool_size": 5,
