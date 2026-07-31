@@ -15,7 +15,6 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
-    return loop.run_until_complete(coro)
 
 
 @celery_app.task(name="app.workers.analytics_tasks.reset_monthly_generation_counts")

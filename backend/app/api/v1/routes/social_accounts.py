@@ -577,24 +577,16 @@ async def connect_meta_manual(
 
 # ─────────────────────────── Meta Posting ────────────────────────────────────
 
-@router.post("/meta/post", response_model=MetaPostResponse)
-async def post_to_meta(
-    body: MetaPostRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Publish a post to a connected Facebook Page or Instagram Business account.
-
-    Facebook Page  → plain text OR text+image
-    Instagram      → requires image_url (IG Graph API doesn't support text-only posts)
-    """
+async def _load_account(
+    account_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> SocialAccount:
+    """Load an active SocialAccount that belongs to the caller's organization."""
     org = await _get_user_org(current_user, db)
-
-    # Load the SocialAccount
     result = await db.execute(
         select(SocialAccount).where(
-            SocialAccount.id              == body.account_id,
+            SocialAccount.id              == account_id,
             SocialAccount.organization_id == org.id,
             SocialAccount.is_active       == True,
         )
@@ -602,125 +594,56 @@ async def post_to_meta(
     account = result.scalar_one_or_none()
     if not account:
         raise NotFoundError("Social account not found or not connected.")
+    return account
 
-    token = account.access_token
 
-    async with httpx.AsyncClient(timeout=30) as client:
+@router.post("/publish", response_model=MetaPostResponse)
+async def publish_post(
+    body: MetaPostRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Publish a post to any connected social account.
 
-        # ── Facebook Page ──────────────────────────────────────────────────
-        if account.platform == "facebook_page":
-            payload: dict = {"message": body.message, "access_token": token}
-            if body.image_url:
-                # Photo post
-                res = await client.post(
-                    f"{META_GRAPH}/{account.account_id}/photos",
-                    data={**payload, "url": body.image_url},
-                )
-            else:
-                # Text post
-                res = await client.post(
-                    f"{META_GRAPH}/{account.account_id}/feed",
-                    data=payload,
-                )
+    Facebook Page  → text, optionally with an image
+    Instagram      → image required (IG Graph API has no text-only posts)
+    LinkedIn       → text, optionally with an image
+    Twitter / X    → text only, truncated to 280 characters
+    """
+    from app.services.publisher import PublishError, publish_to_platform
 
-            if res.status_code != 200:
-                detail = res.json().get("error", {}).get("message", res.text)
-                logger.error("Facebook post failed", error=detail)
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Facebook error: {detail}",
-                )
+    account = await _load_account(body.account_id, current_user, db)
 
-            post_id = res.json().get("id") or res.json().get("post_id", "")
-            return MetaPostResponse(platform="facebook_page", post_id=post_id, success=True)
-
-        # ── Instagram Business ─────────────────────────────────────────────
-        elif account.platform == "instagram":
-            if not body.image_url:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Instagram requires an image_url. Text-only posts are not supported by the Instagram Graph API.",
-                )
-
-            ig_id = account.account_id
-
-            # Step 1 — Create media container
-            container_res = await client.post(
-                f"{META_GRAPH}/{ig_id}/media",
-                data={
-                    "image_url":    body.image_url,
-                    "caption":      body.message,
-                    "access_token": token,
-                },
-            )
-            if container_res.status_code != 200:
-                detail = container_res.json().get("error", {}).get("message", container_res.text)
-                logger.error("Instagram container creation failed", error=detail)
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Instagram error: {detail}",
-                )
-
-            creation_id = container_res.json().get("id")
-            if not creation_id:
-                err_body = container_res.json()
-                logger.error("Instagram container missing id", response=err_body)
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Instagram container creation returned no ID. Response: {err_body}",
-                )
-
-            # Step 2 — Poll container status until FINISHED (Instagram processes async)
-            # Meta recommends checking status_code before publishing
-            import asyncio
-            for attempt in range(10):
-                await asyncio.sleep(2)
-                status_res = await client.get(
-                    f"{META_GRAPH}/{creation_id}",
-                    params={"fields": "status_code,status", "access_token": token},
-                )
-                if status_res.status_code == 200:
-                    container_status = status_res.json().get("status_code", "")
-                    if container_status == "FINISHED":
-                        break
-                    if container_status in ("ERROR", "EXPIRED"):
-                        err_msg = status_res.json().get("status", container_status)
-                        logger.error("Instagram container processing failed", status=container_status, detail=err_msg)
-                        raise HTTPException(
-                            status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail=f"Instagram media processing failed: {err_msg}",
-                        )
-                    # IN_PROGRESS — keep polling
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Instagram media container timed out (still processing after 20 s). Try again.",
-                )
-
-            # Step 3 — Publish the ready container
-            publish_res = await client.post(
-                f"{META_GRAPH}/{ig_id}/media_publish",
-                data={
-                    "creation_id":  creation_id,
-                    "access_token": token,
-                },
-            )
-            if publish_res.status_code != 200:
-                detail = publish_res.json().get("error", {}).get("message", publish_res.text)
-                logger.error("Instagram publish failed", error=detail)
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Instagram publish error: {detail}",
-                )
-
-            media_id = publish_res.json().get("id", "")
-            return MetaPostResponse(platform="instagram", post_id=media_id, success=True)
-
-        else:
+    try:
+        post_id = await publish_to_platform(account, body.message, body.image_url)
+    except PublishError as exc:
+        # Missing-image on Instagram is a client mistake, not an upstream failure
+        message = str(exc)
+        if "requires an image" in message:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Platform '{account.platform}' not supported for direct posting yet.",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=message,
             )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message)
+
+    logger.info("Post published", platform=account.platform, post_id=post_id)
+    return MetaPostResponse(platform=account.platform, post_id=post_id, success=True)
+
+
+@router.post("/meta/post", response_model=MetaPostResponse)
+async def post_to_meta(
+    body: MetaPostRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Deprecated alias for POST /publish, kept for backward compatibility.
+
+    Despite the name it now routes through the shared publisher, so it works for
+    LinkedIn and Twitter accounts too.
+    """
+    return await publish_post(body, current_user, db)
 
 
 # ─────────────────────────── LinkedIn OAuth ──────────────────────────────────

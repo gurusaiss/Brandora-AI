@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  Hash,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth-store'
@@ -23,6 +24,7 @@ const navItems = [
   { href: '/content', label: 'Content Studio', icon: Sparkles, highlight: true },
   { href: '/campaigns', label: 'Campaigns', icon: Target },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/hashtags', label: 'Hashtags', icon: Hash },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/brand', label: 'Brand Profile', icon: Building2 },
   { href: '/settings', label: 'Settings', icon: Settings },

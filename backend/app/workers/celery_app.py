@@ -1,5 +1,17 @@
 """
 Celery application factory and configuration.
+
+NOTE ON BEAT SCHEDULING
+-----------------------
+`beat_schedule` is intentionally left empty. All recurring work runs on
+APScheduler inside the FastAPI process (see app/core/scheduler.py), which is the
+only scheduler guaranteed to be running on single-service deployments such as
+Render's free tier.
+
+Do NOT add `process_due_posts` or `reset_monthly_generation_counts` to a beat
+schedule while APScheduler owns them — both schedulers would fire and every post
+would be published twice. Celery here is for on-demand tasks dispatched with
+`.delay()` / `.apply_async()` only.
 """
 from celery import Celery
 

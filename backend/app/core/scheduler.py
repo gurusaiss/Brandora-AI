@@ -6,6 +6,10 @@ Jobs:
   2. process_campaign_posts     — every 5 min: publish posts that are ready
   3. retry_failed_posts         — every 15 min: retry failed posts up to max_retries
   4. run_auto_campaigns         — every 5 min: legacy simple auto-campaigns
+  5. reset_monthly_quotas       — daily 00:15 IST: zero ai_generations_used on the 1st
+
+Publishing goes through app.services.publisher.publish_to_platform, which supports
+Facebook Pages, Instagram Business, LinkedIn and Twitter/X.
 
 Design rule: every scheduler function uses THREE phases so that no DB connection
 is held open while making external HTTP calls (Groq, Meta Graph, image APIs):
@@ -76,7 +80,7 @@ def _next_run(frequency: str, post_time: str, post_days: list, from_utc: datetim
     return (today_at + timedelta(days=1)).astimezone(_UTC)
 
 
-# ── Lightweight duck-type for _post_to_meta ───────────────────────────────────
+# ── Lightweight duck-type for the publisher ───────────────────────────────────
 
 class _MockSA:
     """Minimal duck-type of SocialAccount, used outside any DB session."""
@@ -88,64 +92,14 @@ class _MockSA:
         self.access_token = access_token
 
 
-# ── Meta posting helper ───────────────────────────────────────────────────────
+# ── Publishing helper ─────────────────────────────────────────────────────────
+# Delegates to the shared publisher service so the scheduler, the manual
+# "Publish now" route, and the Celery worker all use identical platform logic.
+# Supports facebook_page, instagram, linkedin and twitter.
 
-async def _post_to_meta(account, content: str, image_url: str | None) -> str:
-    import httpx
-    GRAPH = "https://graph.facebook.com/v19.0"
-    token = account.access_token
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        if account.platform == "facebook_page":
-            payload = {"message": content, "access_token": token}
-            if image_url:
-                r = await client.post(f"{GRAPH}/{account.account_id}/photos",
-                                      data={**payload, "url": image_url})
-            else:
-                r = await client.post(f"{GRAPH}/{account.account_id}/feed", data=payload)
-            if r.status_code != 200:
-                raise RuntimeError(f"FB error: {r.json().get('error', {}).get('message', r.text)}")
-            return r.json().get("id") or r.json().get("post_id", "")
-
-        if account.platform == "instagram":
-            if not image_url:
-                raise RuntimeError("Instagram requires an image_url")
-            c = await client.post(
-                f"{GRAPH}/{account.account_id}/media",
-                data={"image_url": image_url, "caption": content, "access_token": token},
-            )
-            if c.status_code != 200:
-                raise RuntimeError(f"IG container: {c.json().get('error', {}).get('message', c.text)}")
-            media_id = c.json().get("id")
-            if not media_id:
-                raise RuntimeError(f"IG container response missing id: {c.json()}")
-
-            # Poll until container is FINISHED (Meta processes containers async)
-            import asyncio as _asyncio
-            for _ in range(10):
-                await _asyncio.sleep(2)
-                st = await client.get(
-                    f"{GRAPH}/{media_id}",
-                    params={"fields": "status_code,status", "access_token": token},
-                )
-                if st.status_code == 200:
-                    sc = st.json().get("status_code", "")
-                    if sc == "FINISHED":
-                        break
-                    if sc in ("ERROR", "EXPIRED"):
-                        raise RuntimeError(f"IG container failed: {st.json().get('status', sc)}")
-            else:
-                raise RuntimeError("IG container timed out waiting for FINISHED status")
-
-            p = await client.post(
-                f"{GRAPH}/{account.account_id}/media_publish",
-                data={"creation_id": media_id, "access_token": token},
-            )
-            if p.status_code != 200:
-                raise RuntimeError(f"IG publish: {p.json().get('error', {}).get('message', p.text)}")
-            return p.json().get("id", "")
-
-    raise RuntimeError(f"Unsupported platform: {account.platform}")
+async def _publish(account, content: str, image_url: str | None) -> str:
+    from app.services.publisher import publish_to_platform
+    return await publish_to_platform(account, content, image_url)
 
 
 # ── Job 1: generate content for upcoming posts ────────────────────────────────
@@ -387,7 +341,7 @@ async def process_campaign_posts() -> None:
     outcomes: list[tuple] = []  # (post_id, campaign_id, ok, platform_id_or_err, retry_count)
     for job in jobs:
         try:
-            pid = await _post_to_meta(
+            pid = await _publish(
                 _MockSA(job.platform, job.account_id, job.access_token),
                 job.content, job.image_url,
             )
@@ -555,7 +509,7 @@ async def run_auto_campaigns() -> None:
             content, hashtags = await generate_post_content(
                 job.campaign, job.platform, job.published_posts, job.total_posts
             )
-            pid = await _post_to_meta(
+            pid = await _publish(
                 _MockSA(job.platform, job.account_id, job.access_token),
                 content, job.image_url,
             )
@@ -604,6 +558,35 @@ async def run_auto_campaigns() -> None:
         logger.error("run_auto_campaigns write error: %s", exc, exc_info=True)
 
 
+# ── Job 5: reset monthly AI generation quotas ─────────────────────────────────
+
+async def reset_monthly_quotas() -> None:
+    """
+    Reset ai_generations_used to 0 for every organization at the start of a new
+    billing month. Runs daily and no-ops unless it is the 1st of the month, so a
+    missed cron day still resets on the next tick.
+    """
+    from sqlalchemy import update as sa_update
+    from app.core.database import async_session_factory
+    from app.schemas.organization import Organization
+
+    now_ist = datetime.now(_IST)
+    if now_ist.day != 1:
+        return
+
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                sa_update(Organization)
+                .where(Organization.ai_generations_used > 0)
+                .values(ai_generations_used=0)
+            )
+            await db.commit()
+            logger.info("Monthly AI quotas reset for %d organizations", result.rowcount or 0)
+    except Exception as exc:
+        logger.error("reset_monthly_quotas error: %s", exc, exc_info=True)
+
+
 # ── Scheduler init ────────────────────────────────────────────────────────────
 
 def init_scheduler() -> None:
@@ -615,3 +598,6 @@ def init_scheduler() -> None:
                       id="retry_handler",        replace_existing=True)
     scheduler.add_job(run_auto_campaigns,       trigger="interval", minutes=5,
                       id="auto_campaign_runner", replace_existing=True)
+    # Daily at 00:15 IST — no-ops on every day except the 1st
+    scheduler.add_job(reset_monthly_quotas,     trigger="cron", hour=18, minute=45,
+                      id="monthly_quota_reset",  replace_existing=True)

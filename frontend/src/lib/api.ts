@@ -295,11 +295,18 @@ export const socialAccountsApi = {
     api.post('/social-accounts/connect/meta/manual', { page_access_token: pageAccessToken }),
   disconnect: (accountId: string) =>
     api.delete(`/social-accounts/${accountId}`),
+  // Generic publisher — works for facebook_page, instagram, linkedin and twitter
+  publish: (data: {
+    account_id: string
+    message: string
+    image_url?: string
+  }) => api.post('/social-accounts/publish', data),
+  /** @deprecated use publish() — kept so older callers keep working */
   metaPost: (data: {
     account_id: string
     message: string
     image_url?: string
-  }) => api.post('/social-accounts/meta/post', data),
+  }) => api.post('/social-accounts/publish', data),
 }
 
 export default api

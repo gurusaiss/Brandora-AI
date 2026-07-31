@@ -93,23 +93,25 @@ function ResultCard({
     queryKey: ['social-accounts'],
     queryFn: async () => {
       const res = await socialAccountsApi.list()
-      return toArray<any>(res.data).filter(
-        (a) => a.platform === 'facebook_page' || a.platform === 'instagram',
-      )
+      return toArray<any>(res.data)
     },
     enabled: showMetaPublish,
     staleTime: 60_000,
   })
   const metaAccounts: any[] = metaAccountsQuery.data ?? []
+  const selectedAccount = metaAccounts.find((a) => a.id === metaAccountId)
+  // Instagram is the only platform where the Graph API rejects text-only posts
+  const imageRequired = selectedAccount?.platform === 'instagram'
 
   const metaPostMutation = useMutation({
     mutationFn: ({ accountId, message, imageUrl }: { accountId: string; message: string; imageUrl?: string }) =>
-      socialAccountsApi.metaPost({ account_id: accountId, message, image_url: imageUrl || undefined }),
+      socialAccountsApi.publish({ account_id: accountId, message, image_url: imageUrl || undefined }),
     onSuccess: () => {
       setShowMetaPublish(false); setMetaAccountId(''); setMetaImageUrl('')
-      toast.success('Published to Meta! 🎉')
+      toast.success('Published! 🎉')
     },
-    onError: (err: any) => toast.error(err?.response?.data?.detail ?? 'Failed to publish to Meta'),
+    onError: (err: any) =>
+      toast.error(err?.response?.data?.detail ?? err?.response?.data?.message ?? 'Failed to publish'),
   })
 
   const campaignsQuery = useQuery({
@@ -281,7 +283,7 @@ function ResultCard({
           <div className="flex flex-wrap gap-2">
             {[
               { key: 'schedule', icon: Calendar, label: 'Schedule Post', active: showScheduleForm },
-              { key: 'meta',     icon: Send,     label: 'Publish to Meta', active: showMetaPublish },
+              { key: 'meta',     icon: Send,     label: 'Publish Now', active: showMetaPublish },
               { key: 'campaign', icon: FolderPlus, label: 'Add to Campaign', active: showCampaignSelector },
             ].map(({ key, icon: Icon, label, active }) => (
               <button
@@ -331,31 +333,48 @@ function ResultCard({
           {/* Meta publish panel */}
           {showMetaPublish && (
             <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Publish to Facebook / Instagram</p>
+              <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Publish to a connected account</p>
               {metaAccountsQuery.isLoading && (
                 <div className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Loading accounts…</span></div>
               )}
               {!metaAccountsQuery.isLoading && metaAccounts.length === 0 && (
-                <p className="text-xs text-muted-foreground">No Meta accounts connected. <a href="/settings" className="underline text-blue-600">Go to Settings →</a></p>
+                <p className="text-xs text-muted-foreground">No accounts connected. <a href="/settings" className="underline text-blue-600">Go to Settings →</a></p>
               )}
               {metaAccounts.length > 0 && (
                 <>
                   <select value={metaAccountId} onChange={(e) => setMetaAccountId(e.target.value)}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50">
                     <option value="">Choose account…</option>
-                    {metaAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.platform === 'facebook_page' ? '📘' : '📸'} {a.account_name || a.account_id}
-                      </option>
-                    ))}
+                    {metaAccounts.map((a) => {
+                      const icon = a.platform === 'facebook_page' ? '📘'
+                        : a.platform === 'instagram' ? '📸'
+                        : a.platform === 'linkedin' ? '💼'
+                        : a.platform === 'twitter' ? '🐦' : '🔗'
+                      return (
+                        <option key={a.id} value={a.id}>
+                          {icon} {a.account_name || a.account_id}
+                        </option>
+                      )
+                    })}
                   </select>
                   <input type="url" value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)}
-                    placeholder="Image URL (required for Instagram)"
+                    placeholder={imageRequired ? 'Image URL (required for Instagram)' : 'Image URL (optional)'}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  {selectedAccount?.platform === 'twitter' && (
+                    <p className="text-xs text-muted-foreground">
+                      Twitter posts are text-only and truncated to 280 characters.
+                      {result.generated_content.length > 280 && (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                          {' '}This content is {result.generated_content.length} chars and will be shortened.
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={() => metaPostMutation.mutate({ accountId: metaAccountId, message: result.generated_content, imageUrl: metaImageUrl || undefined })}
-                      disabled={!metaAccountId || metaPostMutation.isPending}
+                      disabled={!metaAccountId || metaPostMutation.isPending || (imageRequired && !metaImageUrl.trim())}
+                      title={imageRequired && !metaImageUrl.trim() ? 'Instagram requires an image URL' : undefined}
                       className="h-8 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
                     >
                       {metaPostMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
