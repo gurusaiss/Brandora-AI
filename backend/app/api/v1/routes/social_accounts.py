@@ -728,9 +728,10 @@ async def linkedin_oauth_callback(
             return RedirectResponse(
                 url=f"{frontend_base}/settings?linkedin_error=token_exchange_failed", status_code=302
             )
-        token_data   = token_res.json()
-        access_token = token_data.get("access_token")
-        expires_in   = token_data.get("expires_in", 5184000)  # default 60 days
+        token_data    = token_res.json()
+        access_token  = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")  # present when openid+offline_access granted
+        expires_in    = token_data.get("expires_in", 5184000)  # default 60 days
 
         # Fetch user profile (OpenID Connect userinfo endpoint)
         me_res = await client.get(
@@ -759,6 +760,7 @@ async def linkedin_oauth_callback(
     account = existing.scalar_one_or_none()
     if account:
         account.access_token     = access_token
+        account.refresh_token    = refresh_token or account.refresh_token
         account.account_name     = li_name
         account.token_expires_at = token_expires_at
         account.is_active        = True
@@ -769,6 +771,7 @@ async def linkedin_oauth_callback(
             account_id       = str(li_id),
             account_name     = li_name,
             access_token     = access_token,
+            refresh_token    = refresh_token,
             token_expires_at = token_expires_at,
             is_active        = True,
         )
@@ -888,9 +891,10 @@ async def twitter_oauth_callback(
             return RedirectResponse(
                 url=f"{frontend_base}/settings?twitter_error=token_exchange_failed", status_code=302
             )
-        token_data   = token_res.json()
-        access_token = token_data.get("access_token")
-        expires_in   = token_data.get("expires_in", 7200)
+        token_data    = token_res.json()
+        access_token  = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")  # present when offline.access scope granted
+        expires_in    = token_data.get("expires_in", 7200)
 
         # Fetch user profile
         me_res = await client.get(
@@ -920,6 +924,7 @@ async def twitter_oauth_callback(
     account = existing.scalar_one_or_none()
     if account:
         account.access_token     = access_token
+        account.refresh_token    = refresh_token or account.refresh_token
         account.account_name     = tw_name
         account.token_expires_at = token_expires_at
         account.is_active        = True
@@ -930,6 +935,7 @@ async def twitter_oauth_callback(
             account_id       = str(tw_id),
             account_name     = tw_name,
             access_token     = access_token,
+            refresh_token    = refresh_token,
             token_expires_at = token_expires_at,
             is_active        = True,
         )

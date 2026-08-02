@@ -587,6 +587,111 @@ async def reset_monthly_quotas() -> None:
         logger.error("reset_monthly_quotas error: %s", exc, exc_info=True)
 
 
+# ── Job 6: refresh expiring social account tokens ─────────────────────────────
+
+async def refresh_expiring_tokens() -> None:
+    """
+    Proactively refresh LinkedIn and Twitter OAuth tokens before they expire.
+    Runs every 6 hours; targets accounts whose token expires within 7 days.
+
+    Meta/Instagram: Page Access Tokens from long-lived UATs never expire — skipped.
+    LinkedIn:       Access tokens last 60 days; refresh tokens last up to 1 year.
+    Twitter:        Access tokens last 2 hours; refresh tokens are perpetual while used.
+    """
+    import base64 as _b64
+    import httpx
+    from sqlalchemy import select
+    from app.core.database import async_session_factory
+    from app.schemas.campaign import SocialAccount
+    from app.core.config import settings
+
+    LINKEDIN_TOKEN = "https://www.linkedin.com/oauth/v2/accessToken"
+    TWITTER_TOKEN  = "https://api.twitter.com/2/oauth2/token"
+
+    cutoff = datetime.now(_UTC) + timedelta(days=7)
+
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.is_active       == True,
+                    SocialAccount.platform.in_(["linkedin", "twitter"]),
+                    SocialAccount.refresh_token   != None,
+                    SocialAccount.token_expires_at <= cutoff,
+                )
+            )
+            accounts = result.scalars().all()
+
+        if not accounts:
+            return
+
+        logger.info("Token refresh: %d account(s) expiring within 7 days", len(accounts))
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            for acct in accounts:
+                try:
+                    if acct.platform == "linkedin":
+                        res = await client.post(
+                            LINKEDIN_TOKEN,
+                            data={
+                                "grant_type":    "refresh_token",
+                                "refresh_token": acct.refresh_token,
+                                "client_id":     settings.LINKEDIN_CLIENT_ID,
+                                "client_secret": settings.LINKEDIN_CLIENT_SECRET,
+                            },
+                            headers={"Content-Type": "application/x-www-form-urlencoded"},
+                        )
+                        if res.status_code != 200:
+                            logger.warning("LinkedIn token refresh failed for %s: %s", acct.account_id, res.text)
+                            continue
+                        data = res.json()
+                        new_access  = data.get("access_token")
+                        new_refresh = data.get("refresh_token", acct.refresh_token)
+                        expires_in  = data.get("expires_in", 5184000)
+
+                    elif acct.platform == "twitter":
+                        credentials = _b64.b64encode(
+                            f"{settings.TWITTER_API_KEY}:{settings.TWITTER_API_SECRET}".encode()
+                        ).decode()
+                        res = await client.post(
+                            TWITTER_TOKEN,
+                            data={
+                                "grant_type":    "refresh_token",
+                                "refresh_token": acct.refresh_token,
+                            },
+                            headers={
+                                "Authorization": f"Basic {credentials}",
+                                "Content-Type":  "application/x-www-form-urlencoded",
+                            },
+                        )
+                        if res.status_code != 200:
+                            logger.warning("Twitter token refresh failed for %s: %s", acct.account_id, res.text)
+                            continue
+                        data = res.json()
+                        new_access  = data.get("access_token")
+                        new_refresh = data.get("refresh_token", acct.refresh_token)
+                        expires_in  = data.get("expires_in", 7200)
+
+                    else:
+                        continue
+
+                    # Write new tokens back
+                    async with async_session_factory() as db2:
+                        fresh = await db2.get(SocialAccount, acct.id)
+                        if fresh:
+                            fresh.access_token     = new_access
+                            fresh.refresh_token    = new_refresh
+                            fresh.token_expires_at = datetime.now(_UTC) + timedelta(seconds=expires_in)
+                            await db2.commit()
+                            logger.info("Refreshed %s token for %s", acct.platform, acct.account_name)
+
+                except Exception as exc:
+                    logger.error("Token refresh error for account %s: %s", acct.id, exc, exc_info=True)
+
+    except Exception as exc:
+        logger.error("refresh_expiring_tokens error: %s", exc, exc_info=True)
+
+
 # ── Scheduler init ────────────────────────────────────────────────────────────
 
 def init_scheduler() -> None:
@@ -601,3 +706,6 @@ def init_scheduler() -> None:
     # Daily at 00:15 IST — no-ops on every day except the 1st
     scheduler.add_job(reset_monthly_quotas,     trigger="cron", hour=18, minute=45,
                       id="monthly_quota_reset",  replace_existing=True)
+    # Every 6 hours: refresh LinkedIn/Twitter tokens expiring within 7 days
+    scheduler.add_job(refresh_expiring_tokens,  trigger="interval", hours=6,
+                      id="token_refresher",      replace_existing=True)
