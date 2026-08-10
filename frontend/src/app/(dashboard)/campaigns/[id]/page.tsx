@@ -244,9 +244,10 @@ export default function CampaignDetailPage() {
     </div>
   )
 
+  const posts = campaign.posts ?? []
   const filteredPosts = filter === 'all'
-    ? campaign.posts
-    : campaign.posts.filter(p => p.status === filter)
+    ? posts
+    : posts.filter(p => p.status === filter)
 
   const stats = [
     { label: 'Total',      value: campaign.total_posts,       icon: Calendar,     color: 'text-foreground'  },
@@ -348,7 +349,7 @@ export default function CampaignDetailPage() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-foreground">
             Posts Schedule
-            <span className="ml-2 text-xs text-muted-foreground">({campaign.posts.length} total)</span>
+            <span className="ml-2 text-xs text-muted-foreground">({posts.length} total)</span>
           </h3>
           {/* Filter chips */}
           <div className="flex gap-1.5 flex-wrap">
@@ -362,7 +363,7 @@ export default function CampaignDetailPage() {
                     : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
               >
-                {f === 'all' ? `All (${campaign.posts.length})` :
+                {f === 'all' ? `All (${posts.length})` :
                   f === 'scheduled' ? `Scheduled (${campaign.posts_scheduled})` :
                   f === 'published' ? `Published (${campaign.posts_published})` :
                   `Failed (${campaign.posts_failed})`}

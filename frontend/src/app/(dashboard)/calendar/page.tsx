@@ -331,7 +331,8 @@ export default function CalendarPage() {
   // ── Upcoming posts (no day selected) ──────────────────────────────────────
   const upcomingPosts = useMemo(() => {
     return [...postsData]
-      .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
+      .filter((p) => p.scheduled_at)
+      .sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
       .slice(0, 10)
   }, [postsData])
 

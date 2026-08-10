@@ -102,7 +102,7 @@ export default function HashtagsPage() {
   }
 
   const copyTags = async (tags: string[]) => {
-    await navigator.clipboard.writeText(tags.join(' '))
+    await navigator.clipboard.writeText((tags ?? []).join(' '))
     setCopied(true)
     toast.success('Copied to clipboard')
     setTimeout(() => setCopied(false), 2000)
@@ -300,7 +300,7 @@ export default function HashtagsPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{set.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {set.hashtags.length} hashtags
+                      {(set.hashtags?.length ?? 0)} hashtags
                       {set.platform && ` · ${set.platform}`}
                     </p>
                   </div>
@@ -323,7 +323,7 @@ export default function HashtagsPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {set.hashtags.map((tag) => (
+                  {(set.hashtags ?? []).map((tag) => (
                     <span
                       key={tag}
                       className="text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full border border-primary-200 dark:border-primary-800"

@@ -30,7 +30,8 @@ import type { AnalyticsOverview } from '@/types'
 interface TopContentItem {
   id: string
   platform: string
-  input_topic: string
+  topic?: string        // backend returns `topic`
+  input_topic?: string  // tolerate older shape
   quality_score: number
 }
 
@@ -209,7 +210,7 @@ export default function AnalyticsPage() {
                 {perfData.top_content.map((row) => (
                   <tr key={row.id} className="hover:bg-muted/30 transition-colors">
                     <td className="py-3 pr-4">
-                      <span className="text-foreground">{truncate(row.input_topic, 50)}</span>
+                      <span className="text-foreground">{truncate(row.topic ?? row.input_topic ?? 'Untitled', 50)}</span>
                     </td>
                     <td className="py-3 pr-4">
                       <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', getPlatformColor(row.platform))}>

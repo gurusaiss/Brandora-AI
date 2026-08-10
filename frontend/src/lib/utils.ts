@@ -7,19 +7,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: string | Date): string {
-  return format(new Date(date), 'MMM d, yyyy')
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return '—'
+  const d = new Date(date)
+  return isNaN(d.getTime()) ? '—' : format(d, 'MMM d, yyyy')
 }
 
-export function formatDateTime(date: string | Date): string {
-  return format(new Date(date), 'MMM d, yyyy • h:mm a')
+export function formatDateTime(date: string | Date | null | undefined): string {
+  if (!date) return '—'
+  const d = new Date(date)
+  return isNaN(d.getTime()) ? '—' : format(d, 'MMM d, yyyy • h:mm a')
 }
 
-export function formatRelativeTime(date: string | Date): string {
-  return formatDistanceToNow(new Date(date), { addSuffix: true })
+export function formatRelativeTime(date: string | Date | null | undefined): string {
+  if (!date) return '—'
+  const d = new Date(date)
+  return isNaN(d.getTime()) ? '—' : formatDistanceToNow(d, { addSuffix: true })
 }
 
-export function truncate(str: string, length: number): string {
+export function truncate(str: string | null | undefined, length: number): string {
+  if (!str) return ''
   return str.length > length ? str.substring(0, length) + '...' : str
 }
 

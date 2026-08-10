@@ -794,9 +794,9 @@ function CampaignCard({
         </span>
       </div>
 
-      {campaign.platforms.length > 0 && (
+      {(campaign.platforms?.length ?? 0) > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {campaign.platforms.slice(0, 5).map(p => (
+          {(campaign.platforms ?? []).slice(0, 5).map(p => (
             <span key={p} className="text-sm bg-muted rounded-lg px-2 py-0.5 text-muted-foreground">
               {getPlatformIcon(p)} {getPlatformLabel(p)}
             </span>
