@@ -274,8 +274,20 @@ async def meta_oauth_callback(
                 "fb_exchange_token": short_token,
             },
         )
-        ll_data    = ll_res.json()
-        long_token = ll_data.get("access_token", short_token)
+        ll_data = ll_res.json()
+        if ll_res.status_code != 200 or "access_token" not in ll_data:
+            # Exchange failed — usually means META_APP_SECRET is missing/wrong.
+            # Abort rather than storing a short-lived token that expires in hours.
+            logger.error(
+                "Meta long-lived token exchange failed — check META_APP_SECRET",
+                status=ll_res.status_code,
+                body=ll_res.text,
+            )
+            return RedirectResponse(
+                url=f"{frontend_base}/settings?meta_error=token_exchange_failed",
+                status_code=302,
+            )
+        long_token = ll_data["access_token"]
         # Page Access Tokens derived from a long-lived UAT never expire.
         # We store a 10-year sentinel; they only invalidate on password change.
         token_expires_at = datetime.now(timezone.utc) + timedelta(days=3650)
