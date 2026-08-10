@@ -10,7 +10,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/alembic/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      # Schema + festival seed data now live in the Alembic migration
+      # (backend/alembic/versions/001_initial_schema.py). Run
+      # `alembic upgrade head` against this DB to create and seed it.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U brandora -d brandora_ai"]
       interval: 5s

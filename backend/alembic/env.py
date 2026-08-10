@@ -25,7 +25,10 @@ from app.schemas.user import User, UserOrganizationMembership  # noqa: F401
 from app.schemas.organization import Organization  # noqa: F401
 from app.schemas.content import ContentGeneration  # noqa: F401
 from app.schemas.brand_profile import BrandProfile  # noqa: F401
-from app.schemas.campaign import Campaign, CampaignPost, Festival, SocialAccount, HashtagSet  # noqa: F401
+from app.schemas.campaign import (  # noqa: F401
+    Campaign, CampaignPost, CampaignImage, Festival, SocialAccount, HashtagSet,
+)
+from app.schemas.api_key import ApiKey  # noqa: F401
 
 target_metadata = Base.metadata
 

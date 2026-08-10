@@ -1,13 +1,16 @@
 """Initial schema — all core tables
 
+Regenerated to match the current SQLAlchemy ORM models in app/schemas/*.
+Columns use plain VARCHAR/TEXT (not Postgres ENUMs) to mirror the models
+exactly, so a fresh database built from this migration matches what the
+application code queries.
+
 Revision ID: 001
 Revises: None
 Create Date: 2025-01-01 00:00:00.000000
 """
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # ---------------------------------------------------------------------------
 revision = "001"
@@ -16,426 +19,344 @@ branch_labels = None
 depends_on = None
 # ---------------------------------------------------------------------------
 
+# Tables in dependency-safe creation order. The DDL below is generated from
+# Base.metadata (SQLAlchemy postgresql dialect) and mirrors the ORM 1:1.
+CREATE_TABLES = [
+    # users ------------------------------------------------------------------
+    """
+    CREATE TABLE users (
+        id UUID NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        hashed_password VARCHAR(255) NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        avatar_url VARCHAR(1024),
+        is_active BOOLEAN NOT NULL,
+        is_verified BOOLEAN NOT NULL,
+        last_login_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id)
+    )
+    """,
+    # organizations ----------------------------------------------------------
+    """
+    CREATE TABLE organizations (
+        id UUID NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        slug VARCHAR(100) NOT NULL,
+        logo_url VARCHAR(1024),
+        website VARCHAR(512),
+        sector VARCHAR(50) NOT NULL,
+        subscription_tier VARCHAR(20) NOT NULL,
+        ai_generations_used INTEGER NOT NULL,
+        ai_generations_limit INTEGER NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id)
+    )
+    """,
+    # festivals --------------------------------------------------------------
+    """
+    CREATE TABLE festivals (
+        id UUID NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        date DATE NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        relevant_sectors JSON,
+        suggested_hashtags JSON,
+        country VARCHAR(50) NOT NULL,
+        is_recurring BOOLEAN NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id)
+    )
+    """,
+    # user_organization_memberships -----------------------------------------
+    """
+    CREATE TABLE user_organization_memberships (
+        id UUID NOT NULL,
+        user_id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+    )
+    """,
+    # brand_profiles ---------------------------------------------------------
+    """
+    CREATE TABLE brand_profiles (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        organization_name VARCHAR(255) NOT NULL,
+        tagline VARCHAR(512),
+        mission_statement TEXT,
+        about TEXT,
+        sector_focus JSON,
+        target_audience VARCHAR(512),
+        geographic_focus VARCHAR(255),
+        sdg_alignment JSON,
+        tone_professional INTEGER NOT NULL,
+        tone_warm INTEGER NOT NULL,
+        tone_inspirational INTEGER NOT NULL,
+        tone_educational INTEGER NOT NULL,
+        tone_urgent INTEGER NOT NULL,
+        founder_name VARCHAR(255),
+        founder_title VARCHAR(255),
+        founder_bio TEXT,
+        custom_vocabulary JSON,
+        avoid_words JSON,
+        sample_posts JSON,
+        linkedin_handle VARCHAR(100),
+        instagram_handle VARCHAR(100),
+        twitter_handle VARCHAR(100),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+    )
+    """,
+    # social_accounts --------------------------------------------------------
+    """
+    CREATE TABLE social_accounts (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        platform VARCHAR(30) NOT NULL,
+        account_id VARCHAR(255) NOT NULL,
+        account_name VARCHAR(255),
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expires_at TIMESTAMP WITH TIME ZONE,
+        is_active BOOLEAN NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+    )
+    """,
+    # campaigns --------------------------------------------------------------
+    """
+    CREATE TABLE campaigns (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        user_id UUID,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        campaign_type VARCHAR(50) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        start_date DATE,
+        end_date DATE,
+        platforms JSON,
+        target_hashtags JSON,
+        brief TEXT,
+        festival_id UUID,
+        total_posts INTEGER NOT NULL,
+        published_posts INTEGER NOT NULL,
+        topic TEXT,
+        social_account_id UUID,
+        frequency VARCHAR(20) NOT NULL,
+        post_time VARCHAR(5) NOT NULL,
+        post_days JSON,
+        is_scheduled BOOLEAN NOT NULL,
+        last_run_at TIMESTAMP WITH TIME ZONE,
+        next_run_at TIMESTAMP WITH TIME ZONE,
+        image_url TEXT,
+        campaign_goal TEXT,
+        target_audience TEXT,
+        tone VARCHAR(50) NOT NULL,
+        keywords JSON,
+        cta TEXT,
+        generate_images BOOLEAN NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE SET NULL,
+        FOREIGN KEY(festival_id) REFERENCES festivals (id) ON DELETE SET NULL,
+        FOREIGN KEY(social_account_id) REFERENCES social_accounts (id) ON DELETE SET NULL
+    )
+    """,
+    # content_generations ----------------------------------------------------
+    """
+    CREATE TABLE content_generations (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        user_id UUID,
+        input_topic VARCHAR(500) NOT NULL,
+        input_context TEXT,
+        campaign_brief TEXT,
+        platform VARCHAR(50) NOT NULL,
+        tone VARCHAR(50) NOT NULL,
+        generated_content TEXT NOT NULL,
+        hashtags JSON,
+        quality_score FLOAT,
+        ai_model_used VARCHAR(100) NOT NULL,
+        tokens_used INTEGER NOT NULL,
+        is_saved BOOLEAN NOT NULL,
+        is_deleted BOOLEAN NOT NULL,
+        is_repurposed BOOLEAN NOT NULL,
+        parent_generation_id UUID,
+        feedback VARCHAR(20),
+        campaign_id UUID,
+        language VARCHAR(10) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE SET NULL,
+        FOREIGN KEY(parent_generation_id) REFERENCES content_generations (id) ON DELETE SET NULL,
+        FOREIGN KEY(campaign_id) REFERENCES campaigns (id) ON DELETE SET NULL
+    )
+    """,
+    # campaign_posts ---------------------------------------------------------
+    """
+    CREATE TABLE campaign_posts (
+        id UUID NOT NULL,
+        campaign_id UUID NOT NULL,
+        content_generation_id UUID,
+        platform VARCHAR(50) NOT NULL,
+        content TEXT NOT NULL,
+        hashtags JSON,
+        media_urls JSON,
+        image_url TEXT,
+        scheduled_at TIMESTAMP WITH TIME ZONE,
+        published_at TIMESTAMP WITH TIME ZONE,
+        status VARCHAR(20) NOT NULL,
+        sequence_order INTEGER NOT NULL,
+        retry_count INTEGER NOT NULL,
+        max_retries INTEGER NOT NULL,
+        failure_reason TEXT,
+        platform_post_id VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY(content_generation_id) REFERENCES content_generations (id) ON DELETE SET NULL
+    )
+    """,
+    # campaign_images --------------------------------------------------------
+    """
+    CREATE TABLE campaign_images (
+        id UUID NOT NULL,
+        campaign_id UUID NOT NULL,
+        post_id UUID,
+        image_url TEXT NOT NULL,
+        storage_path TEXT,
+        prompt_used TEXT,
+        model_used VARCHAR(100) NOT NULL,
+        generated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY(post_id) REFERENCES campaign_posts (id) ON DELETE SET NULL
+    )
+    """,
+    # hashtag_sets -----------------------------------------------------------
+    """
+    CREATE TABLE hashtag_sets (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        platform VARCHAR(50),
+        hashtags JSON NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+    )
+    """,
+    # api_keys ---------------------------------------------------------------
+    """
+    CREATE TABLE api_keys (
+        id UUID NOT NULL,
+        organization_id UUID NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        key_hash VARCHAR(64) NOT NULL,
+        key_preview VARCHAR(20) NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        last_used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE
+    )
+    """,
+]
+
+CREATE_INDEXES = [
+    "CREATE UNIQUE INDEX ix_users_email ON users (email)",
+    "CREATE UNIQUE INDEX ix_organizations_slug ON organizations (slug)",
+    "CREATE INDEX ix_festivals_date ON festivals (date)",
+    "CREATE INDEX ix_user_organization_memberships_user_id ON user_organization_memberships (user_id)",
+    "CREATE INDEX ix_user_organization_memberships_organization_id ON user_organization_memberships (organization_id)",
+    "CREATE UNIQUE INDEX ix_brand_profiles_organization_id ON brand_profiles (organization_id)",
+    "CREATE INDEX ix_social_accounts_organization_id ON social_accounts (organization_id)",
+    "CREATE INDEX ix_campaigns_organization_id ON campaigns (organization_id)",
+    "CREATE INDEX ix_content_generations_campaign_id ON content_generations (campaign_id)",
+    "CREATE INDEX ix_content_generations_organization_id ON content_generations (organization_id)",
+    "CREATE INDEX ix_content_generations_user_id ON content_generations (user_id)",
+    "CREATE INDEX ix_campaign_posts_campaign_id ON campaign_posts (campaign_id)",
+    "CREATE INDEX ix_campaign_images_post_id ON campaign_images (post_id)",
+    "CREATE INDEX ix_campaign_images_campaign_id ON campaign_images (campaign_id)",
+    "CREATE INDEX ix_hashtag_sets_organization_id ON hashtag_sets (organization_id)",
+    "CREATE INDEX ix_api_keys_organization_id ON api_keys (organization_id)",
+    "CREATE UNIQUE INDEX ix_api_keys_key_hash ON api_keys (key_hash)",
+]
+
+# Reverse order for clean teardown (children before parents).
+DROP_TABLES = [
+    "api_keys",
+    "hashtag_sets",
+    "campaign_images",
+    "campaign_posts",
+    "content_generations",
+    "campaigns",
+    "social_accounts",
+    "brand_profiles",
+    "user_organization_memberships",
+    "festivals",
+    "organizations",
+    "users",
+]
+
+
+# Reference data: WASH / hygiene / social-impact awareness calendar.
+# Seeded here so any fresh database (alembic upgrade head) has festivals for
+# the calendar feature. Dates use 2026; is_recurring marks annual observances.
+SEED_FESTIVALS = """
+INSERT INTO festivals (id, name, description, date, category, relevant_sectors, suggested_hashtags, country, is_recurring, created_at, updated_at)
+VALUES
+ (gen_random_uuid(), 'World Menstrual Hygiene Day', 'Global day to raise awareness about good menstrual hygiene management', DATE '2026-05-28', 'awareness_day', '["menstrual_hygiene","womens_health"]'::json, '["#MenstrualHygieneDay","#MHDay","#PeriodPositive","#MenstrualHealth","#BreakTheTaboo"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Toilet Day', 'Inspiring action to tackle the global sanitation crisis', DATE '2026-11-19', 'awareness_day', '["water_sanitation"]'::json, '["#WorldToiletDay","#Sanitation4All","#WASH","#ToiletDay","#CleanSanitation"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Water Day', 'Advocating for the sustainable management of freshwater resources', DATE '2026-03-22', 'awareness_day', '["water_sanitation"]'::json, '["#WorldWaterDay","#Water4All","#WaterSecurity","#CleanWater","#WASH"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'Global Handwashing Day', 'Increasing awareness of handwashing with soap', DATE '2026-10-15', 'awareness_day', '["public_health","water_sanitation"]'::json, '["#GlobalHandwashingDay","#HandwashingDay","#CleanHands","#HygieneMatters","#WashYourHands"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'International Women''s Day', 'Celebrating women''s achievements and advocating for gender equality', DATE '2026-03-08', 'un_day', '["womens_health","community_development"]'::json, '["#IWD2026","#InternationalWomensDay","#GenderEquality","#WomensRights"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Environment Day', 'Encouraging awareness and action for the protection of the environment', DATE '2026-06-05', 'un_day', '["environment"]'::json, '["#WorldEnvironmentDay","#ForNature","#GenerationRestoration","#Sustainability"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Health Day', 'Drawing attention to important health issues affecting people of all ages', DATE '2026-04-07', 'un_day', '["public_health"]'::json, '["#WorldHealthDay","#HealthForAll","#GlobalHealth","#HealthMatters"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'Gandhi Jayanti / Swachh Bharat', 'Birthday of Mahatma Gandhi and Swachh Bharat Mission anniversary', DATE '2026-10-02', 'national_day', '["water_sanitation","community_development"]'::json, '["#SwachhBharat","#GandhiJayanti","#CleanIndia","#SwachhBharatMission"]'::json, 'IN', true, now(), now()),
+ (gen_random_uuid(), 'Swachh Bharat Diwas', 'Swachh Bharat Mission launch anniversary', DATE '2026-09-19', 'national_day', '["water_sanitation"]'::json, '["#SwachhBharatDiwas","#SwachhBharat","#CleanIndia","#SanitationForAll"]'::json, 'IN', true, now(), now()),
+ (gen_random_uuid(), 'Zero Discrimination Day', 'Promoting equality before the law and in practice', DATE '2026-03-01', 'un_day', '["community_development"]'::json, '["#ZeroDiscriminationDay","#ZeroDiscrimination","#Inclusion"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Population Day', 'Focus attention on the urgency and importance of population issues', DATE '2026-07-11', 'un_day', '["public_health","womens_health"]'::json, '["#WorldPopulationDay","#PopulationDay","#HealthForAll"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'International Day of Rural Women', 'Recognizing the role women play in rural development', DATE '2026-10-15', 'un_day', '["womens_health","community_development"]'::json, '["#RuralWomen","#RuralWomensDay","#EmpowerWomen"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Breastfeeding Week', 'Promoting breastfeeding and improving the health of babies worldwide', DATE '2026-08-01', 'awareness_day', '["public_health","womens_health"]'::json, '["#WorldBreastfeedingWeek","#WBW2026","#BreastfeedingSupport"]'::json, 'GLOBAL', true, now(), now()),
+ (gen_random_uuid(), 'World Humanitarian Day', 'Honour humanitarian workers and advocate for humanitarian action', DATE '2026-08-19', 'un_day', '["community_development"]'::json, '["#WorldHumanitarianDay","#HumanitarianHeroes","#ForHumanity"]'::json, 'GLOBAL', true, now(), now())
+"""
+
 
 def upgrade() -> None:
-    # ── Enums ──────────────────────────────────────────────────────────────
-    subscription_tier = postgresql.ENUM(
-        "free", "pro", "growth", "enterprise",
-        name="subscriptiontier",
-        create_type=True,
-    )
-    subscription_tier.create(op.get_bind(), checkfirst=True)
-
-    user_role = postgresql.ENUM(
-        "owner", "admin", "editor", "viewer",
-        name="userrole",
-        create_type=True,
-    )
-    user_role.create(op.get_bind(), checkfirst=True)
-
-    platform_enum = postgresql.ENUM(
-        "linkedin", "instagram", "twitter", "facebook",
-        name="platformenum",
-        create_type=True,
-    )
-    platform_enum.create(op.get_bind(), checkfirst=True)
-
-    content_status = postgresql.ENUM(
-        "draft", "pending", "approved", "scheduled", "published", "failed", "archived",
-        name="contentstatus",
-        create_type=True,
-    )
-    content_status.create(op.get_bind(), checkfirst=True)
-
-    ai_provider_enum = postgresql.ENUM(
-        "groq", "google", "openai", "anthropic",
-        name="aiproviderenum",
-        create_type=True,
-    )
-    ai_provider_enum.create(op.get_bind(), checkfirst=True)
-
-    # ── users ──────────────────────────────────────────────────────────────
-    op.create_table(
-        "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("email", sa.String(255), nullable=False),
-        sa.Column("hashed_password", sa.String(255), nullable=True),  # nullable for OAuth
-        sa.Column("full_name", sa.String(255), nullable=False),
-        sa.Column("avatar_url", sa.Text, nullable=True),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("is_verified", sa.Boolean, nullable=False, server_default="false"),
-        sa.Column("is_superuser", sa.Boolean, nullable=False, server_default="false"),
-        sa.Column("supabase_uid", sa.String(255), nullable=True),
-        sa.Column("last_login_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()"), onupdate=sa.text("NOW()")),
-    )
-    op.create_index("ix_users_email", "users", ["email"], unique=True)
-    op.create_index("ix_users_supabase_uid", "users", ["supabase_uid"], unique=True)
-
-    # ── subscription_plans ────────────────────────────────────────────────
-    op.create_table(
-        "subscription_plans",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("name", sa.String(100), nullable=False),
-        sa.Column("tier", sa.Enum("free", "pro", "growth", "enterprise",
-                                  name="subscriptiontier", create_type=False),
-                  nullable=False),
-        sa.Column("price_monthly_usd", sa.Numeric(10, 2), nullable=False,
-                  server_default="0"),
-        sa.Column("ai_generations_limit", sa.Integer, nullable=False,
-                  comment="-1 means unlimited"),
-        sa.Column("max_users", sa.Integer, nullable=False,
-                  comment="-1 means unlimited"),
-        sa.Column("max_brands", sa.Integer, nullable=False,
-                  comment="-1 means unlimited"),
-        sa.Column("features", postgresql.JSONB, nullable=False,
-                  server_default="[]"),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-    )
-    op.create_index("ix_subscription_plans_tier", "subscription_plans", ["tier"])
-
-    # ── organizations ─────────────────────────────────────────────────────
-    op.create_table(
-        "organizations",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("slug", sa.String(100), nullable=False),
-        sa.Column("logo_url", sa.Text, nullable=True),
-        sa.Column("website", sa.String(500), nullable=True),
-        sa.Column("description", sa.Text, nullable=True),
-        sa.Column("country", sa.String(100), nullable=True),
-        sa.Column("industry", sa.String(100), nullable=True,
-                  comment="e.g. ngo, csr, government, social_enterprise"),
-        sa.Column("subscription_plan_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("subscription_expires_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("ai_generations_used_this_month", sa.Integer, nullable=False,
-                  server_default="0"),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(
-            ["subscription_plan_id"], ["subscription_plans.id"],
-            ondelete="SET NULL",
-        ),
-    )
-    op.create_index("ix_organizations_slug", "organizations", ["slug"], unique=True)
-
-    # ── user_organization_memberships ─────────────────────────────────────
-    op.create_table(
-        "user_organization_memberships",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("role", sa.Enum("owner", "admin", "editor", "viewer",
-                                  name="userrole", create_type=False),
-                  nullable=False, server_default="editor"),
-        sa.Column("invited_by_user_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("joined_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["invited_by_user_id"], ["users.id"],
-                                ondelete="SET NULL"),
-        sa.UniqueConstraint("user_id", "organization_id",
-                            name="uq_user_organization"),
-    )
-    op.create_index("ix_uom_user_id", "user_organization_memberships", ["user_id"])
-    op.create_index("ix_uom_org_id", "user_organization_memberships",
-                    ["organization_id"])
-
-    # ── brand_profiles ────────────────────────────────────────────────────
-    op.create_table(
-        "brand_profiles",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("tagline", sa.String(500), nullable=True),
-        sa.Column("logo_url", sa.Text, nullable=True),
-        sa.Column("primary_color", sa.String(7), nullable=True,
-                  comment="Hex colour code e.g. #3B82F6"),
-        sa.Column("secondary_color", sa.String(7), nullable=True),
-        sa.Column("brand_voice", sa.Text, nullable=True,
-                  comment="Free text description of brand tone and values"),
-        sa.Column("target_audience", sa.Text, nullable=True),
-        sa.Column("mission_statement", sa.Text, nullable=True),
-        sa.Column("sdg_focus", postgresql.JSONB, nullable=True,
-                  comment="List of SDG numbers this brand focuses on"),
-        sa.Column("default_hashtags", postgresql.JSONB, nullable=True),
-        sa.Column("platforms_connected", postgresql.JSONB, nullable=True,
-                  comment="Map of platform -> oauth token metadata"),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-    )
-    op.create_index("ix_brand_profiles_org_id", "brand_profiles",
-                    ["organization_id"])
-
-    # ── campaigns ─────────────────────────────────────────────────────────
-    op.create_table(
-        "campaigns",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("brand_profile_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("description", sa.Text, nullable=True),
-        sa.Column("objective", sa.String(255), nullable=True),
-        sa.Column("start_date", sa.Date, nullable=True),
-        sa.Column("end_date", sa.Date, nullable=True),
-        sa.Column("status", sa.String(50), nullable=False, server_default="draft",
-                  comment="draft|active|paused|completed|archived"),
-        sa.Column("target_platforms", postgresql.JSONB, nullable=True),
-        sa.Column("tags", postgresql.JSONB, nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["brand_profile_id"], ["brand_profiles.id"],
-                                ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"],
-                                ondelete="RESTRICT"),
-    )
-    op.create_index("ix_campaigns_org_id", "campaigns", ["organization_id"])
-    op.create_index("ix_campaigns_brand_id", "campaigns", ["brand_profile_id"])
-    op.create_index("ix_campaigns_status", "campaigns", ["status"])
-
-    # ── festival_calendar ─────────────────────────────────────────────────
-    op.create_table(
-        "festival_calendar",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("date_month", sa.SmallInteger, nullable=False),
-        sa.Column("date_day", sa.SmallInteger, nullable=False),
-        sa.Column("description", sa.Text, nullable=True),
-        sa.Column("category", sa.String(100), nullable=True,
-                  comment="menstrual_health|sanitation|hygiene|health|gender_equality|environment|inclusion"),
-        sa.Column("sdg_tags", postgresql.JSONB, nullable=True,
-                  comment="List of relevant SDG numbers"),
-        sa.Column("default_hashtags", postgresql.JSONB, nullable=True),
-        sa.Column("is_global", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("is_india_specific", sa.Boolean, nullable=False,
-                  server_default="false"),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-    )
-    op.create_index("ix_festival_calendar_month_day", "festival_calendar",
-                    ["date_month", "date_day"])
-    op.create_index("ix_festival_calendar_category", "festival_calendar",
-                    ["category"])
-
-    # ── content_templates ─────────────────────────────────────────────────
-    op.create_table(
-        "content_templates",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=True,
-                  comment="NULL means system-wide template"),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("description", sa.Text, nullable=True),
-        sa.Column("platform", sa.Enum("linkedin", "instagram", "twitter", "facebook",
-                                      name="platformenum", create_type=False),
-                  nullable=False),
-        sa.Column("category", sa.String(100), nullable=True),
-        sa.Column("template_content", sa.Text, nullable=False,
-                  comment="Template string with {{variable}} placeholders"),
-        sa.Column("variables", postgresql.JSONB, nullable=True,
-                  comment="List of variable names required by this template"),
-        sa.Column("is_system", sa.Boolean, nullable=False, server_default="false"),
-        sa.Column("usage_count", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-    )
-    op.create_index("ix_content_templates_platform", "content_templates",
-                    ["platform"])
-    op.create_index("ix_content_templates_is_system", "content_templates",
-                    ["is_system"])
-
-    # ── content_generations ────────────────────────────────────────────────
-    op.create_table(
-        "content_generations",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("brand_profile_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("campaign_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("festival_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("template_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("platform", sa.Enum("linkedin", "instagram", "twitter", "facebook",
-                                      name="platformenum", create_type=False),
-                  nullable=False),
-        sa.Column("prompt_used", sa.Text, nullable=True),
-        sa.Column("generated_content", sa.Text, nullable=False),
-        sa.Column("edited_content", sa.Text, nullable=True,
-                  comment="User-edited version before publishing"),
-        sa.Column("ai_provider", sa.Enum("groq", "google", "openai", "anthropic",
-                                         name="aiproviderenum", create_type=False),
-                  nullable=False),
-        sa.Column("ai_model", sa.String(100), nullable=True),
-        sa.Column("tokens_used", sa.Integer, nullable=True),
-        sa.Column("generation_time_ms", sa.Integer, nullable=True),
-        sa.Column("status", sa.Enum("draft", "pending", "approved", "scheduled",
-                                    "published", "failed", "archived",
-                                    name="contentstatus", create_type=False),
-                  nullable=False, server_default="draft"),
-        sa.Column("feedback_score", sa.SmallInteger, nullable=True,
-                  comment="1-5 user rating"),
-        sa.Column("feedback_note", sa.Text, nullable=True),
-        sa.Column("language", sa.String(10), nullable=False, server_default="en"),
-        sa.Column("metadata", postgresql.JSONB, nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["brand_profile_id"], ["brand_profiles.id"],
-                                ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"],
-                                ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["campaign_id"], ["campaigns.id"],
-                                ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["festival_id"], ["festival_calendar.id"],
-                                ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["template_id"], ["content_templates.id"],
-                                ondelete="SET NULL"),
-    )
-    op.create_index("ix_content_gen_org_id", "content_generations",
-                    ["organization_id"])
-    op.create_index("ix_content_gen_created_by", "content_generations",
-                    ["created_by_user_id"])
-    op.create_index("ix_content_gen_campaign", "content_generations",
-                    ["campaign_id"])
-    op.create_index("ix_content_gen_status", "content_generations", ["status"])
-    op.create_index("ix_content_gen_platform", "content_generations", ["platform"])
-    op.create_index("ix_content_gen_created_at", "content_generations",
-                    ["created_at"])
-
-    # ── campaign_posts ────────────────────────────────────────────────────
-    op.create_table(
-        "campaign_posts",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("campaign_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("content_generation_id", postgresql.UUID(as_uuid=True),
-                  nullable=False),
-        sa.Column("platform", sa.Enum("linkedin", "instagram", "twitter", "facebook",
-                                      name="platformenum", create_type=False),
-                  nullable=False),
-        sa.Column("status", sa.Enum("draft", "pending", "approved", "scheduled",
-                                    "published", "failed", "archived",
-                                    name="contentstatus", create_type=False),
-                  nullable=False, server_default="draft"),
-        sa.Column("scheduled_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("published_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("platform_post_id", sa.String(255), nullable=True,
-                  comment="ID returned by the social platform after publish"),
-        sa.Column("platform_post_url", sa.Text, nullable=True),
-        sa.Column("publish_error", sa.Text, nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["campaign_id"], ["campaigns.id"],
-                                ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["content_generation_id"],
-                                ["content_generations.id"],
-                                ondelete="CASCADE"),
-    )
-    op.create_index("ix_campaign_posts_campaign_id", "campaign_posts",
-                    ["campaign_id"])
-    op.create_index("ix_campaign_posts_scheduled_at", "campaign_posts",
-                    ["scheduled_at"])
-    op.create_index("ix_campaign_posts_status", "campaign_posts", ["status"])
-
-    # ── ai_usage_logs ─────────────────────────────────────────────────────
-    op.create_table(
-        "ai_usage_logs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("content_generation_id", postgresql.UUID(as_uuid=True),
-                  nullable=True),
-        sa.Column("ai_provider", sa.Enum("groq", "google", "openai", "anthropic",
-                                         name="aiproviderenum", create_type=False),
-                  nullable=False),
-        sa.Column("ai_model", sa.String(100), nullable=False),
-        sa.Column("operation_type", sa.String(100), nullable=False,
-                  comment="generate_post|improve_content|translate|summarize"),
-        sa.Column("prompt_tokens", sa.Integer, nullable=True),
-        sa.Column("completion_tokens", sa.Integer, nullable=True),
-        sa.Column("total_tokens", sa.Integer, nullable=True),
-        sa.Column("cost_usd", sa.Numeric(10, 6), nullable=True),
-        sa.Column("latency_ms", sa.Integer, nullable=True),
-        sa.Column("success", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("error_message", sa.Text, nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.text("NOW()")),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"],
-                                ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["content_generation_id"],
-                                ["content_generations.id"],
-                                ondelete="SET NULL"),
-    )
-    op.create_index("ix_ai_usage_logs_org_id", "ai_usage_logs",
-                    ["organization_id"])
-    op.create_index("ix_ai_usage_logs_user_id", "ai_usage_logs", ["user_id"])
-    op.create_index("ix_ai_usage_logs_created_at", "ai_usage_logs", ["created_at"])
-    op.create_index("ix_ai_usage_logs_provider", "ai_usage_logs", ["ai_provider"])
+    for ddl in CREATE_TABLES:
+        op.execute(ddl)
+    for ddl in CREATE_INDEXES:
+        op.execute(ddl)
+    op.execute(SEED_FESTIVALS)
 
 
 def downgrade() -> None:
-    # Drop tables in reverse dependency order
-    op.drop_table("ai_usage_logs")
-    op.drop_table("campaign_posts")
-    op.drop_table("content_generations")
-    op.drop_table("content_templates")
-    op.drop_table("festival_calendar")
-    op.drop_table("campaigns")
-    op.drop_table("brand_profiles")
-    op.drop_table("user_organization_memberships")
-    op.drop_table("organizations")
-    op.drop_table("subscription_plans")
-    op.drop_table("users")
-
-    # Drop enums
-    for enum_name in [
-        "aiproviderenum",
-        "contentstatus",
-        "platformenum",
-        "userrole",
-        "subscriptiontier",
-    ]:
-        op.execute(f"DROP TYPE IF EXISTS {enum_name}")
+    for table in DROP_TABLES:
+        op.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
