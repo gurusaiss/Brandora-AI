@@ -172,7 +172,7 @@ async def _get_user_org(user: User, db: AsyncSession) -> Organization:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=CampaignListResponse)
+@router.get("", response_model=CampaignListResponse)
 async def list_campaigns(
     status_filter: Optional[str] = Query(None, alias="status"),
     current_user: User = Depends(get_current_active_user),
@@ -198,7 +198,7 @@ async def list_campaigns(
     return CampaignListResponse(items=items, total=len(items))
 
 
-@router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     payload: CampaignCreate,
     current_user: User = Depends(get_current_active_user),

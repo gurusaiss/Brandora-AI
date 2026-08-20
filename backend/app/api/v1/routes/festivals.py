@@ -39,7 +39,7 @@ class FestivalContentRequest(BaseModel):
     context: Optional[str] = None
 
 
-@router.get("/", response_model=List[FestivalResponse])
+@router.get("", response_model=List[FestivalResponse])
 async def list_festivals(
     country: str = Query("IN"),
     category: Optional[str] = Query(None),

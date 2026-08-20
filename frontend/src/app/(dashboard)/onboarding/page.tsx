@@ -340,11 +340,10 @@ export default function OnboardingPage() {
           {step === 3 && (
             <button
               type="button"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => router.push('/')}
               disabled={saveMutation.isPending}
               className="flex items-center gap-2 h-10 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
             >
-              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Skip for now
             </button>
           )}

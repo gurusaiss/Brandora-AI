@@ -61,7 +61,7 @@ async def _get_or_create_profile(org: Organization, db: AsyncSession) -> BrandPr
     return profile
 
 
-@router.get("/", response_model=BrandProfileResponse)
+@router.get("", response_model=BrandProfileResponse)
 async def get_brand_profile(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -72,7 +72,7 @@ async def get_brand_profile(
     return BrandProfileResponse.model_validate(profile)
 
 
-@router.put("/", response_model=BrandProfileResponse)
+@router.put("", response_model=BrandProfileResponse)
 async def update_brand_profile(
     payload: BrandProfileUpdateRequest,
     current_user: User = Depends(get_current_active_user),

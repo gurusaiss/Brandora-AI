@@ -1,10 +1,8 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bell,
-  Search,
   Moon,
   Sun,
   ChevronDown,
@@ -31,7 +29,6 @@ export function Header({ title = 'Dashboard', onMenuClick }: HeaderProps) {
   const { user, organization } = useAuthStore()
   const logout = useLogout()
   const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState('')
 
   const avatarInitials = user?.full_name
     ? user.full_name
@@ -61,25 +58,11 @@ export function Header({ title = 'Dashboard', onMenuClick }: HeaderProps) {
         {title}
       </h1>
 
-      {/* Search */}
-      <div className="flex-1 max-w-md mx-auto hidden md:block">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search content, campaigns..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-9 pl-9 pr-4 rounded-xl bg-muted border border-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-colors"
-          />
-        </div>
-      </div>
-
       <div className="flex items-center gap-2 ml-auto">
         {/* Upgrade badge (free tier) */}
         {organization?.subscription_tier === 'free' && (
           <button
-            onClick={() => router.push('/settings')}
+            onClick={() => router.push('/settings/billing')}
             className="hidden sm:flex items-center gap-1.5 h-8 px-3 bg-gradient-to-r from-primary-500 to-accent text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity"
           >
             <Zap className="w-3 h-3" />
@@ -113,13 +96,33 @@ export function Header({ title = 'Dashboard', onMenuClick }: HeaderProps) {
         </button>
 
         {/* Notifications */}
-        <button
-          className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-primary rounded-full" />
-        </button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className="z-50 min-w-[260px] bg-popover border border-border rounded-xl shadow-lg p-1.5 animate-fade-in"
+              sideOffset={8}
+              align="end"
+            >
+              <div className="px-3 py-2">
+                <p className="text-sm font-medium text-foreground">Notifications</p>
+              </div>
+              <DropdownMenu.Separator className="h-px bg-border my-1" />
+              <div className="px-3 py-6 text-center">
+                <Bell className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">You&apos;re all caught up</p>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">No new notifications</p>
+              </div>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
 
         {/* User avatar dropdown */}
         <DropdownMenu.Root>
@@ -153,7 +156,7 @@ export function Header({ title = 'Dashboard', onMenuClick }: HeaderProps) {
 
               <DropdownMenu.Item asChild>
                 <button
-                  onClick={() => router.push('/profile')}
+                  onClick={() => router.push('/settings')}
                   className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-muted rounded-lg cursor-pointer transition-colors"
                 >
                   <User className="w-4 h-4 text-muted-foreground" />

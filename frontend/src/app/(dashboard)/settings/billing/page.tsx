@@ -163,11 +163,9 @@ export default function BillingPage() {
               <button
                 disabled={isCurrent}
                 onClick={() => {
-                  if (plan.tier === 'growth') {
-                    window.location.href = 'mailto:sales@brandoraai.com?subject=Brandora AI Growth Plan'
-                  } else {
-                    alert('Payment integration coming soon. Please contact support@brandoraai.com to upgrade.')
-                  }
+                  window.location.href = `mailto:sales@brandoraai.com?subject=${encodeURIComponent(
+                    `Brandora AI — Upgrade to ${plan.name} plan`,
+                  )}`
                 }}
                 className={`w-full h-10 rounded-xl text-sm font-semibold transition-colors ${
                   isCurrent

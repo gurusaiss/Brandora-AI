@@ -143,7 +143,7 @@ class MetaPostResponse(BaseModel):
 
 # ─────────────────────────── List / Disconnect ───────────────────────────────
 
-@router.get("/", response_model=List[SocialAccountResponse])
+@router.get("", response_model=List[SocialAccountResponse])
 async def list_social_accounts(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),

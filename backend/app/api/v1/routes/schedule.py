@@ -92,7 +92,7 @@ async def _get_user_org(user: User, db: AsyncSession) -> Organization:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/", response_model=ScheduledPostListResponse)
+@router.get("", response_model=ScheduledPostListResponse)
 async def list_scheduled_posts(
     month: Optional[int] = Query(None, ge=1, le=12, description="Filter by month (1-12)"),
     year: Optional[int] = Query(None, ge=2000, le=2100, description="Filter by year"),
@@ -129,7 +129,7 @@ async def list_scheduled_posts(
     return ScheduledPostListResponse(items=items, total=len(items))
 
 
-@router.post("/", response_model=ScheduledPostResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ScheduledPostResponse, status_code=status.HTTP_201_CREATED)
 async def create_scheduled_post(
     payload: ScheduledPostCreate,
     current_user: User = Depends(get_current_active_user),
